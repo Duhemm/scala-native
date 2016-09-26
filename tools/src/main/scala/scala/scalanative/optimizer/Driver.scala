@@ -23,6 +23,7 @@ object Driver {
     new Impl(
       Seq(pass.GlobalBoxingElimination,
           pass.DeadCodeElimination,
+          pass.InlineCaching,
           pass.GlobalValueNumbering,
           pass.MainInjection,
           pass.ExternHoisting,
@@ -31,6 +32,7 @@ object Driver {
           pass.BoxingLowering,
           pass.AsLowering,
           pass.IsLowering,
+          pass.MethodCallProfiling,
           pass.MethodLowering,
           pass.TraitLowering,
           pass.ClassLowering,
@@ -43,6 +45,7 @@ object Driver {
           pass.AllocLowering,
           pass.SizeofLowering,
           pass.CopyPropagation,
+          pass.LogInsts,
           pass.DeadCodeElimination))
 
   /** Create an empty pass-lesss driver. */
