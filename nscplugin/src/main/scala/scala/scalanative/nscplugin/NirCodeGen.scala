@@ -11,7 +11,7 @@ import nir.Focus, Focus.{sequenced, merged}
 import nir._, Shows._
 import NirPrimitives._
 
-abstract class NirCodeGen
+abstract class NirCodeGen(nirOpts: => NirOptions)
     extends PluginComponent
     with NirFiles
     with NirTypeEncoding
@@ -1676,7 +1676,11 @@ abstract class NirCodeGen
       }
 
     def withDispatchInfo(about: Symbol, focus: Focus): Focus =
-      if (about.fullName != "scala.Predef.println" && !about.fullName.contains("<init>")) {
+      if (nirOpts.profileMethodCalls
+          && about.fullName != "scala.Predef.println"
+          && !about.fullName.contains("<init>")) {
+
+        println("Adding profiling info...")
         val printlnSym = getDecl(PredefModule, TermName("println")).alternatives.tail.head
         val arg = {
           val msg = Literal(Constant(s"Calling '${about.fullName}'"))
@@ -1684,9 +1688,8 @@ abstract class NirCodeGen
           msg
         }
         genModuleMethodCall(PredefModule, printlnSym, Seq(arg), focus)
-      }
-      else
-        focus
+
+      } else focus
 
     def genModuleMethodCall(module: Symbol,
                             method: Symbol,

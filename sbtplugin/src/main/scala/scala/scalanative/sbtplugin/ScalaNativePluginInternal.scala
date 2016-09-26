@@ -134,6 +134,8 @@ object ScalaNativePluginInternal {
 
     nativeSharedLibrary := false,
 
+    nativeProfileDispatch := false,
+
     nativeLink := {
       val mainClass     = (selectMainClass in Compile).value.getOrElse(
         throw new MessageOnlyException("No main class detected.")
@@ -165,6 +167,14 @@ object ScalaNativePluginInternal {
       compileLl(clangpp, target, appll, binary, links, linkage, clangOpts)
 
       binary
+    },
+
+    scalacOptions in Compile := {
+      val previous = (scalacOptions in Compile).value
+      if (nativeProfileDispatch.value)
+        previous ++ Seq("-P:nir:methodCallProfiling")
+      else
+        previous
     },
 
     run := {

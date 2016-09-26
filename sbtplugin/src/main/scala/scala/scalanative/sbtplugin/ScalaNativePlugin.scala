@@ -33,6 +33,9 @@ object ScalaNativePlugin extends AutoPlugin {
 
     val nativeSharedLibrary = settingKey[Boolean](
       "Will create a shared library instead of a program with a main method.")
+
+    val nativeProfileDispatch = settingKey[Boolean](
+      "Gather information about types encountered in method dispatch at runtime.")
   }
 
   override def projectSettings =
