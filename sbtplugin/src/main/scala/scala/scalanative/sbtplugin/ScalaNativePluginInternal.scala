@@ -152,12 +152,14 @@ object ScalaNativePluginInternal {
       val dotpath       = nativeEmitDependencyGraphPath.value
       val linkage       = nativeLibraryLinkage.value
       val sharedLibrary = nativeSharedLibrary.value
+      val profile       = nativeProfileDispatch.value
       val opts          = new NativeOpts(classpath,
                                          abs(appll),
                                          dotpath.map(abs),
                                          entry,
                                          verbose,
-                                         sharedLibrary)
+                                         sharedLibrary,
+                                         profile)
 
       checkThatClangIsRecentEnough(clang)
 
@@ -167,14 +169,6 @@ object ScalaNativePluginInternal {
       compileLl(clangpp, target, appll, binary, links, linkage, clangOpts)
 
       binary
-    },
-
-    scalacOptions in Compile := {
-      val previous = (scalacOptions in Compile).value
-      if (nativeProfileDispatch.value)
-        previous ++ Seq("-P:nir:methodCallProfiling")
-      else
-        previous
     },
 
     run := {

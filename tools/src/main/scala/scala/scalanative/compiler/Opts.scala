@@ -6,4 +6,5 @@ final case class Opts(classpath: Seq[String],
                       dotpath: Option[String],
                       entry: String,
                       verbose: Boolean,
-                      sharedLibrary: Boolean)
+                      sharedLibrary: Boolean,
+                      profileMethodCalls: Boolean)
