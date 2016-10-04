@@ -31,6 +31,7 @@ class MainInjection(entry: Global)(implicit fresh: Fresh) extends Pass {
               Inst.Let(arr.name, Op.Call(initSig, init, Seq(rt, argc, argv))),
               Inst.Let(module.name, Op.Module(entry.top)),
               Inst.Let(Op.Call(mainTy, main, Seq(module, arr))),
+              Inst.Let(Op.Call(dumpLogSig, dumpLog, Seq())),
               Inst.Ret(Val.I32(0))))
   }
 }
@@ -52,5 +53,10 @@ object MainInjection extends PassCompanion {
   val mainName = Global.Top("main")
   val mainSig  = Type.Function(Seq(Arg(Type.I32), Arg(Type.Ptr)), Type.I32)
 
+  val dumpLogName = Global.Top("method_call_dump")
+  val dumpLogSig  = Type.Function(Seq(), Type.Void)
+  val dumpLog     = Val.Global(dumpLogName, dumpLogSig)
+
   override val depends = Seq(ObjectArray.name, Rt.name, init.name)
+  override val injects = Seq(Defn.Declare(Attrs.None, dumpLogName, dumpLogSig))
 }
