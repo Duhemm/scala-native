@@ -136,6 +136,8 @@ object ScalaNativePluginInternal {
 
     nativeProfileDispatch := false,
 
+    nativeProfileInfo := None,
+
     nativeLink := {
       val mainClass     = (selectMainClass in Compile).value.getOrElse(
         throw new MessageOnlyException("No main class detected.")
@@ -153,13 +155,15 @@ object ScalaNativePluginInternal {
       val linkage       = nativeLibraryLinkage.value
       val sharedLibrary = nativeSharedLibrary.value
       val profile       = nativeProfileDispatch.value
+      val profileInfo   = nativeProfileInfo.value
       val opts          = new NativeOpts(classpath,
                                          abs(appll),
                                          dotpath.map(abs),
                                          entry,
                                          verbose,
                                          sharedLibrary,
-                                         profile)
+                                         profile,
+                                         profileInfo)
 
       checkThatClangIsRecentEnough(clang)
 
