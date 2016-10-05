@@ -21,6 +21,7 @@ final class Compiler(opts: Opts) {
       pass.RuntimeTypeInfoInjection,
       pass.AsLowering,
       pass.IsLowering,
+      pass.MonomorphicInlining,
       pass.MethodCallProfiling,
       pass.MethodLowering,
       pass.TraitLowering,
