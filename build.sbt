@@ -139,6 +139,14 @@ lazy val tools =
   project.in(file("tools")).
     settings(toolSettings).
     settings(publishSettings).
+    settings(
+      libraryDependencies ++= {
+        if (scalaVersion.value startsWith "2.11")
+          Seq("org.scala-lang.modules" %% "scala-parser-combinators" % "1.0.4")
+        else
+          Seq()
+      }
+    ).
     dependsOn(nir, util)
 
 lazy val nscplugin =
