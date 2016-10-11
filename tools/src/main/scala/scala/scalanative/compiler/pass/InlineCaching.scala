@@ -7,6 +7,7 @@ import scala.io.Source
 import compiler.analysis.ClassHierarchy._
 import compiler.analysis.ClassHierarchyExtractors._
 import compiler.analysis.ControlFlow, ControlFlow.Block
+import util.unreachable
 import util.{sh, unsupported}
 import nir._, Shows._, Inst.Let
 
@@ -21,11 +22,19 @@ class InlineCaching(dispatchInfo: Map[String, Seq[String]], maxCandidates: Int)(
   println(dispatchInfo)
   println("#" * 181)
 
-  private def splitAfter[T](fn: T => Boolean)(elems: Seq[T]): (Seq[T], Seq[T]) =
-    elems span fn match {
-      case (l0, x +: rest) => (l0 :+ x, rest)
-      case other           => other
+  def splitAtVirtualCall(block: Block): (Block, Let, Block) = {
+    assert(block.insts exists isVirtualCall)
+    block.insts span (!isVirtualCall(_)) match {
+      case (l0, (x @ Let(_, Op.Method(_, _, _))) +: rest) =>
+        val merge = fresh()
+        val b0 = block.copy(insts = l0)
+        val b1 = Block(merge, Seq(Val.Local(x.name, Type.Ptr)), rest :+ block.insts.last)
+        (b0, x, b1)
+      case _ =>
+        unreachable
     }
+  }
+
 
   private def isVirtualCall(inst: Inst): Boolean =
     inst match {
@@ -41,14 +50,15 @@ class InlineCaching(dispatchInfo: Map[String, Seq[String]], maxCandidates: Int)(
 
   private def splitBlock(block: Block): Seq[Block] =
     if (block.insts exists isVirtualCall) {
-      val (b0Insts, b1Insts) = splitAfter(isVirtualCall)(block.insts)
-      val b1Name = fresh()
-      val b0 = block.copy(
-        insts = b0Insts :+ Inst.Jump(Next.Label(b1Name, Nil))
-      )
-      val b1 = block.copy(name = b1Name, params = Nil, insts = b1Insts)
-      b0 +: splitBlock(b1)
-    } else Seq(block)
+      val (b0, inst, b1) = splitAtVirtualCall(block)
+      val instName = fresh()
+      val b01 = b0.copy(
+        insts = b0.insts :+ inst.copy(name = instName) :+ Inst.Jump(Next.Label(b1.name, Seq(Val.Local(instName, Type.Ptr)))))
+
+      b01 +: splitBlock(b1)
+    } else {
+      Seq(block)
+    }
 
   override def preDefn = {
     case define: Defn.Define =>
