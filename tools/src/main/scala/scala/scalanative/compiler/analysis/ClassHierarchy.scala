@@ -242,6 +242,9 @@ object ClassHierarchy {
 
       (table.ty, Defn.Const(Attrs.None, instanceName, table.ty, table))
     }
+
+    def classWithId(id: Int): Option[Class] =
+      classes find (_.id == id)
   }
 
   def apply(defns: Seq[Defn]): Top = {
