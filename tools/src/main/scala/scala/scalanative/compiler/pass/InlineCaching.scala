@@ -85,7 +85,7 @@ class InlineCaching(dispatchInfo: Map[String, Seq[Int]], maxCandidates: Int)(imp
       val key = s"$instname:${meth.name.id}"
 
       dispatchInfo get key getOrElse Seq() flatMap (top classWithId _) match {
-        case candidates if 1 to maxCandidates contains candidates.length =>
+        case candidates if candidates.nonEmpty =>
 
           // load type String
           val tpe        = Val.Local(fresh(), cls.typeStruct)
@@ -98,7 +98,7 @@ class InlineCaching(dispatchInfo: Map[String, Seq[Int]], maxCandidates: Int)(imp
             Let(typeid.name, Op.Extract(tpe, Seq(0)))
           )
 
-          val individualBlocks: Seq[(Class, Local, Block)] = candidates map { clss =>
+          val individualBlocks: Seq[(Class, Local, Block)] = candidates take maxCandidates map { clss =>
             val blockName = fresh()
             val impl = findImpl(meth, clss)
             val staticCall = Let(fresh(), Op.Copy(Val.Global(impl, Type.Ptr)))
@@ -120,7 +120,6 @@ class InlineCaching(dispatchInfo: Map[String, Seq[Int]], maxCandidates: Int)(imp
                 Let(cmpTpe.name, Op.Comp(Comp.Ieq, Type.I32, Val.I32(tpeName), typeid))
               )
 
-              // val cmpTpe = cmpTpeInst(tpeName)
               (els: Local) =>
                 Block(
                   name = fresh(),
@@ -168,9 +167,10 @@ object InlineCaching extends PassCompanion {
   def apply(ctx: Ctx) =
     ctx.options.profileInfo match {
       case Some(info) if info.exists =>
+        val maxCandidates = ctx.options.inlineCachingMaxCandidates
         val dispatchInfo =
           tools.DispatchInfoParser(Source.fromFile(info).mkString)
-        new InlineCaching(dispatchInfo, 5)(ctx.fresh, ctx.top)
+        new InlineCaching(dispatchInfo, maxCandidates)(ctx.fresh, ctx.top)
 
       case _ =>
         EmptyPass

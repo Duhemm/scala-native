@@ -10,4 +10,5 @@ final case class Opts(classpath: Seq[String],
                       verbose: Boolean,
                       sharedLibrary: Boolean,
                       profileMethodCalls: Boolean,
-                      profileInfo: Option[File])
+                      profileInfo: Option[File],
+                      inlineCachingMaxCandidates: Int)
