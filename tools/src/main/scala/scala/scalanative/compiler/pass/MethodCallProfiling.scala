@@ -22,7 +22,7 @@ class MethodCallProfiling(implicit top: Top, fresh: Fresh) extends Pass {
       Seq(
           Let(typeptr.name, Op.Load(Type.Ptr, obj)),
           Let(typeidptr.name,
-               Op.Elem(cls.typeStruct, typeptr, Seq(Val.I32(0), Val.I32(0)))),
+              Op.Elem(cls.typeStruct, typeptr, Seq(Val.I32(0), Val.I32(0)))),
           Let(typeid.name, Op.Load(Type.I32, typeidptr)),
           Let(Op.Call(callCountSig, callCount, Seq())),
           Let(
@@ -46,8 +46,9 @@ object MethodCallProfiling extends PassCompanion {
   val callCount     = Val.Global(callCountName, callCountSig)
 
   val profileMethodName = Global.Top("method_call_log")
-  val profileMethodSig  = Type.Function(Seq(Arg(Type.I32), Arg(Rt.String)), Type.Void)
-  val profileMethod     = Val.Global(profileMethodName, profileMethodSig)
+  val profileMethodSig =
+    Type.Function(Seq(Arg(Type.I32), Arg(Rt.String)), Type.Void)
+  val profileMethod = Val.Global(profileMethodName, profileMethodSig)
 
   override val injects = Seq(
       Defn.Declare(Attrs.None, profileMethodName, profileMethodSig),

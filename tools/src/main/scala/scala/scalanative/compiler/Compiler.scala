@@ -22,7 +22,6 @@ final class Compiler(opts: Opts) {
       pass.AsLowering,
       pass.IsLowering,
       pass.InlineCaching,
-      // pass.MonomorphicInlining,
       pass.MethodCallProfiling,
       pass.MethodLowering,
       pass.TraitLowering,

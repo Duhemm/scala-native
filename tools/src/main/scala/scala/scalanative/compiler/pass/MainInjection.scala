@@ -7,7 +7,8 @@ import nir._
 /** Introduces `main` function that sets up
  *  the runtime and calls the given entry point.
  */
-class MainInjection(entry: Global, options: Opts)(implicit fresh: Fresh) extends Pass {
+class MainInjection(entry: Global, options: Opts)(implicit fresh: Fresh)
+    extends Pass {
   import MainInjection._
 
   override def preAssembly = {
@@ -26,11 +27,13 @@ class MainInjection(entry: Global, options: Opts)(implicit fresh: Fresh) extends
         if (options.profileMethodCalls)
           options.profileInfo match {
             case Some(file) =>
-              Seq(Inst.Let(Op.Call(dumpLogFileSig, dumpLogFile, Seq(Val.String(file.getAbsolutePath)))))
+              Seq(
+                  Inst.Let(Op.Call(dumpLogFileSig,
+                                   dumpLogFile,
+                                   Seq(Val.String(file.getAbsolutePath)))))
             case None =>
               Seq(Inst.Let(Op.Call(dumpLogConsoleSig, dumpLogConsole, Seq())))
-          }
-        else Seq()
+          } else Seq()
 
       defns :+ Defn.Define(
           Attrs.None,
@@ -41,14 +44,15 @@ class MainInjection(entry: Global, options: Opts)(implicit fresh: Fresh) extends
               Inst.Let(arr.name, Op.Call(initSig, init, Seq(rt, argc, argv))),
               Inst.Let(module.name, Op.Module(entry.top)),
               Inst.Let(Op.Call(mainTy, main, Seq(module, arr)))) ++
-          dumpProfilingInsts ++
-          Seq(Inst.Ret(Val.I32(0))))
+            dumpProfilingInsts ++
+            Seq(Inst.Ret(Val.I32(0))))
   }
 }
 
 object MainInjection extends PassCompanion {
   def apply(ctx: Ctx) =
-    if (!ctx.options.sharedLibrary) new MainInjection(ctx.entry, ctx.options)(ctx.fresh)
+    if (!ctx.options.sharedLibrary)
+      new MainInjection(ctx.entry, ctx.options)(ctx.fresh)
     else EmptyPass
 
   val ObjectArray =
@@ -72,9 +76,8 @@ object MainInjection extends PassCompanion {
   val dumpLogConsole     = Val.Global(dumpLogConsoleName, dumpLogConsoleSig)
 
   override val depends = Seq(ObjectArray.name, Rt.name, init.name)
-  override val injects =
-    Seq(
+  override val injects = Seq(
       Defn.Declare(Attrs.None, dumpLogFileName, dumpLogFileSig),
       Defn.Declare(Attrs.None, dumpLogConsoleName, dumpLogConsoleSig)
-    )
+  )
 }
