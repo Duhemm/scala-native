@@ -34,6 +34,12 @@ object TestUtilities {
           fake.original match {
             case NativeFingerprint =>
               s"""new ${test.name}().test()"""
+            case UTest() =>
+              s"""val executor = new scala.concurrent.ExecutionContextExecutor {
+                 |  override def execute(arg0: Runnable): Unit = arg0.run()
+                 |  override def reportFailure(cause: Throwable): Unit = throw cause
+                 |}
+                 |${test.name}.tests.runAsync()(executor)""".stripMargin
             case other =>
               throw new UnsupportedOperationException(
                 "Unsupported fingerprint: " + other)
@@ -44,4 +50,14 @@ object TestUtilities {
        |  main(rest.toArray)""".stripMargin
   }
 
+  private object UTest {
+    def unapply(fingerprint: Fingerprint): Boolean =
+      fingerprint match {
+        case scf: SubclassFingerprint =>
+          scf.superclassName == "utest.TestSuite" &&
+            scf.isModule &&
+            scf.requireNoArgConstructor
+        case _ => false
+      }
+  }
 }

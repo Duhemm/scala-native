@@ -208,7 +208,7 @@ lazy val nativelib =
       if (compileSuccess) {
         (compile in Compile).value
       } else {
-        error("Compilation failed")
+        sys.error("Compilation failed")
       }
     })
 
@@ -256,6 +256,8 @@ lazy val scalalib =
         IO.delete(file("scalalib/src/main/scala"))
         IO.copyDirectory(trgDir / "src" / "library" / "scala",
                          file("scalalib/src/main/scala/scala"))
+
+        IO.delete(file("scalalib/src/main/scala/scala/concurrent/impl/AbstractPromise.java"))
 
         val epoch :: major :: _ = scalaVersion.value.split("\\.").toList
         IO.copyDirectory(file(s"scalalib/overrides-$epoch.$major/scala"),
@@ -318,6 +320,8 @@ lazy val sandbox =
       scalaVersion := libScalaVersion
     )
     .enablePlugins(ScalaNativePlugin)
+    .dependsOn(utest % Test)
+    .settings(testFrameworks += new TestFramework("utest.runner.Framework"))
 
 lazy val testInterface =
   project
