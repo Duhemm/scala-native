@@ -114,7 +114,13 @@ object ScalaNativePluginInternal {
     Process(compile, target).!
   }
 
-  lazy val projectSettings = Seq(
+  lazy val projectSettings =
+    unscopedSettings ++
+      inConfig(Compile)(scopedSettings) ++
+      inConfig(Test)(scopedSettings) ++
+      inScope(Global)(defaultSettings)
+
+  lazy val unscopedSettings = Seq(
     libraryDependencies ++= Seq(
       "org.scala-native" %% "nativelib" % nativeVersion,
       "org.scala-native" %% "javalib"   % nativeVersion,
@@ -122,11 +128,10 @@ object ScalaNativePluginInternal {
     ),
     addCompilerPlugin(
       "org.scala-native" % "nscplugin" % nativeVersion cross CrossVersion.full),
-    resolvers += Resolver.sonatypeRepo("snapshots"),
-    nativeVerbose := false,
-    nativeEmitDependencyGraphPath := None,
-    nativeLibraryLinkage := Map(),
-    nativeSharedLibrary := false,
+    resolvers += Resolver.sonatypeRepo("snapshots")
+  )
+
+  lazy val defaultSettings = Seq(
     nativeClang := {
       discover("clang", Seq(("3", "8"), ("3", "7")))
     },
@@ -142,16 +147,23 @@ object ScalaNativePluginInternal {
       }
       includes ++ libs ++ maybeInjectShared(nativeSharedLibrary.value) ++ lrt
     },
+    nativeSharedLibrary := false
+  )
+
+  lazy val scopedSettings = Seq(
+    nativeVerbose := false,
+    nativeEmitDependencyGraphPath := None,
+    nativeLibraryLinkage := Map(),
     artifactPath in nativeLink := {
-      (crossTarget in Compile).value / (moduleName.value + "-out")
+      crossTarget.value / (moduleName.value + "-out")
     },
     nativeLink := {
-      val mainClass = (selectMainClass in Compile).value.getOrElse(
+      val mainClass = (selectMainClass in run).value.getOrElse(
         throw new MessageOnlyException("No main class detected.")
       )
       val entry         = mainClass.toString + "$"
-      val classpath     = cpToStrings((fullClasspath in Compile).value.map(_.data))
-      val target        = (crossTarget in Compile).value
+      val classpath     = cpToStrings(fullClasspath.value.map(_.data))
+      val target        = crossTarget.value
       val appll         = target / (moduleName.value + "-out.ll")
       val binary        = (artifactPath in nativeLink).value
       val verbose       = nativeVerbose.value
