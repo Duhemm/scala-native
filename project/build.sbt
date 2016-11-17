@@ -19,6 +19,4 @@ libraryDependencies += compilerPlugin(
 
 addSbtPlugin("com.eed3si9n" % "sbt-dirty-money" % "0.1.0")
 
-libraryDependencies <+= (sbtVersion) { sv =>
-  "org.scala-sbt" % "scripted-plugin" % sv
-}
+libraryDependencies += "org.scala-sbt" % "scripted-plugin" % sbtVersion.value

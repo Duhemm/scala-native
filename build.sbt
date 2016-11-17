@@ -17,9 +17,9 @@ lazy val publishSettings = Seq(
   publishArtifact in Compile := true,
   publishArtifact in Test := false,
   publishMavenStyle := true,
-  publishTo <<= version { v: String =>
+  publishTo := {
     val nexus = "https://oss.sonatype.org/"
-    if (v.trim.endsWith("SNAPSHOT"))
+    if (version.value.trim.endsWith("SNAPSHOT"))
       Some("snapshots" at nexus + "content/repositories/snapshots")
     else
       Some("releases" at nexus + "service/local/staging/deploy/maven2")
@@ -178,13 +178,15 @@ lazy val sbtplugin =
       },
       sbtTestDirectory := (baseDirectory in ThisBuild).value / "scripted-tests",
       // publish the other projects before running scripted tests.
-      scripted <<= scripted.dependsOn(publishLocal in util,
-                                      publishLocal in nir,
-                                      publishLocal in tools,
-                                      publishLocal in nscplugin,
-                                      publishLocal in nativelib,
-                                      publishLocal in javalib,
-                                      publishLocal in scalalib)
+      scripted := scripted
+        .dependsOn(publishLocal in util,
+                   publishLocal in nir,
+                   publishLocal in tools,
+                   publishLocal in nscplugin,
+                   publishLocal in nativelib,
+                   publishLocal in javalib,
+                   publishLocal in scalalib)
+        .evaluated
     )
     .dependsOn(tools)
 
@@ -260,8 +262,8 @@ lazy val scalalib =
                          file("scalalib/src/main/scala/scala"),
                          overwrite = true)
       },
-      compile in Compile <<= (compile in Compile) dependsOn assembleScalaLibrary,
-      publishLocal <<= publishLocal dependsOn assembleScalaLibrary
+      compile in Compile := ((compile in Compile) dependsOn assembleScalaLibrary).value,
+      publishLocal := (publishLocal dependsOn assembleScalaLibrary).value
     )
     .dependsOn(nativelib, javalib)
 
