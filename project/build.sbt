@@ -4,9 +4,12 @@ unmanagedSourceDirectories in Compile ++= {
     root / "util/src/main/scala",
     root / "nir/src/main/scala",
     root / "tools/src/main/scala",
-    root / "sbtplugin/src/main/scala"
+    root / "sbtplugin/src/main/scala",
+    root / "test-interface/src/main/scala"
   )
 }
+
+libraryDependencies += "org.scala-sbt" % "test-interface" % "1.0"
 
 libraryDependencies += "org.eclipse.jgit" % "org.eclipse.jgit.pgm" % "3.2.0.201312181205-r"
 
