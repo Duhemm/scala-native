@@ -34,14 +34,30 @@ object ScalaNativePluginInternal {
 
   private def discover(binaryName: String,
                        binaryVersions: Seq[(String, String)]): File = {
-    val binaryNames = binaryVersions.flatMap {
-      case (major, minor) =>
-        Seq(s"$binaryName$major$minor", s"$binaryName-$major.$minor")
-    } :+ binaryName
+    val docInstallUrl =
+      "http://scala-native.readthedocs.io/en/latest/user/setup.html#installing-llvm-clang-and-boehm-gc"
 
-    Process("which" +: binaryNames).lines_!.map(file(_)).headOption.getOrElse {
-      throw new MessageOnlyException(
-        s"no") // ${binaryNames.mkString(", ")} found in $$PATH. Install clang")
+    if (Process(Seq("uname", "-a")).lines_!.exists(_.contains("NixOS"))) {
+      Process(Seq("which", binaryName)).lines_!
+        .map(file(_))
+        .headOption
+        .getOrElse {
+          throw new MessageOnlyException(
+            s"no $binaryName found in $$PATH. Install clang ($docInstallUrl)")
+        }
+    } else {
+      val binaryNames = binaryVersions.flatMap {
+        case (major, minor) =>
+          Seq(s"$binaryName$major$minor", s"$binaryName-$major.$minor")
+      } :+ binaryName
+
+      Process("which" +: binaryNames).lines_!
+        .map(file(_))
+        .headOption
+        .getOrElse {
+          throw new MessageOnlyException(
+            s"no ${binaryNames.mkString(", ")} found in $$PATH. Install clang ($docInstallUrl)")
+        }
     }
   }
 
@@ -234,6 +250,7 @@ object ScalaNativePluginInternal {
         FileFunction.cached(streams.value.cacheDirectory / "native-cache",
                             FilesInfo.hash) { _ =>
           IO.createDirectory(target)
+
           val unpackSuccess = unpackRtlib(clang, clangpp, classpath)
 
           if (unpackSuccess) {

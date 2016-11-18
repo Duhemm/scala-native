@@ -1,10 +1,10 @@
-// import utest._
+import utest._
 
-// object UTestTest extends TestSuite {
-//   val tests = this {
-//     'test1 {
-//       println("!" * 1000)
-//       1
-//     }
-//   }
-// }
+object UTestTest extends TestSuite {
+  val tests = this {
+    'test1 {
+      println("!" * 1000)
+      1
+    }
+  }
+}

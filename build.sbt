@@ -208,7 +208,7 @@ lazy val nativelib =
       if (compileSuccess) {
         (compile in Compile).value
       } else {
-        error("Compilation failed")
+        sys.error("Compilation failed")
       }
     })
 
@@ -256,6 +256,8 @@ lazy val scalalib =
         IO.delete(file("scalalib/src/main/scala"))
         IO.copyDirectory(trgDir / "src" / "library" / "scala",
                          file("scalalib/src/main/scala/scala"))
+
+        IO.delete(file("scalalib/src/main/scala/scala/concurrent/impl/AbstractPromise.java"))
 
         val epoch :: major :: _ = scalaVersion.value.split("\\.").toList
         IO.copyDirectory(file(s"scalalib/overrides-$epoch.$major/scala"),
@@ -317,17 +319,22 @@ lazy val utest =
     .settings(noPublishSettings)
     .settings(nativeSharedLibrary := true)
     .settings(
-      libraryDependencies += "org.scala-lang" % "scala-reflect" % scalaVersion.value,
-      libraryDependencies += "org.scala-sbt" % "test-interface" % "1.0")
+      libraryDependencies ++= Seq(
+        "org.scala-lang" % "scala-reflect" % scalaVersion.value,
+        "org.scala-sbt" % "test-interface" % "1.0"
+      )
+    )
 
 lazy val sandbox =
   project
     .in(file("sandbox"))
     .settings(
       noPublishSettings,
-      scalaVersion := libScalaVersion
+      scalaVersion := libScalaVersion,
+      testFrameworks += new TestFramework("utest.runner.Framework")
     )
     .enablePlugins(ScalaNativePlugin)
+    .dependsOn(utest)
 
 lazy val testInterface =
   project
@@ -379,8 +386,10 @@ commands ++= Seq(
   Command.command("publishLocalAll") { state =>
     "nscplugin/publishLocal" ::
       "nativelib/publishLocal" ::
-        "publishLocal" ::
-          state
+        "project testInterface" ::
+        "+ testInterface/publishLocal" ::
+          "publishLocal" ::
+            state
   },
   Command.command("testAll") { state =>
     "tools/test" ::
