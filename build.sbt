@@ -193,7 +193,7 @@ lazy val sbtplugin =
                    publishLocal in scalalib)
         .evaluated
     )
-    .dependsOn(tools)
+    .dependsOn(tools, testInterface)
 
 lazy val nativelib =
   project.in(file("nativelib")).settings(libSettings).settings(publishSettings)
@@ -296,11 +296,35 @@ lazy val tests =
       }.taskValue
     )
 
+lazy val utest =
+  project
+    .in(file("utest"))
+    .settings(projectSettings)
+    .settings(noPublishSettings)
+    .settings(nativeSharedLibrary := true)
+    .settings(
+      libraryDependencies += "org.scala-lang" % "scala-reflect" % scalaVersion.value,
+      libraryDependencies += "org.scala-sbt" % "test-interface" % "1.0")
+
 lazy val sandbox =
   project
     .in(file("sandbox"))
-    .settings(projectSettings)
-    .settings(noPublishSettings)
+    .settings(
+      noPublishSettings,
+      scalaVersion := libScalaVersion
+    )
+    .enablePlugins(ScalaNativePlugin)
+
+lazy val testInterface =
+  project
+    .in(file("test-interface"))
+    .settings(
+      name := "test-interface",
+      baseSettings,
+      scalaVersion := libScalaVersion,
+      crossScalaVersions := Seq(toolScalaVersion, libScalaVersion),
+      libraryDependencies += "org.scala-sbt" % "test-interface" % "1.0"
+    )
 
 commands ++= Seq(
   Command.command("cleanAll") { state =>
