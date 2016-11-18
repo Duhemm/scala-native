@@ -34,7 +34,6 @@ object ScalaNativePluginInternal {
 
   private def discover(binaryName: String,
                        binaryVersions: Seq[(String, String)]): File = {
-
     val docInstallUrl =
       "http://scala-native.readthedocs.io/en/latest/user/setup.html#installing-llvm-clang-and-boehm-gc"
 
@@ -68,10 +67,23 @@ object ScalaNativePluginInternal {
     compiler.apply()
   }
 
+  /** Compiles *.c[pp] in `cwd`. */
+  def compileCSources(clang: File, clangpp: File, cwd: File): Boolean = {
+    val cpaths     = (cwd ** "*.c").get.map(abs)
+    val cpppaths   = (cwd ** "*.cpp").get.map(abs)
+    val compilec   = abs(clang) +: (includes ++ ("-c" +: cpaths))
+    val compilecpp = abs(clangpp) +: (includes ++ ("-c" +: cpppaths))
+
+    val cExit   = Process(compilec, cwd).!
+    val cppExit = Process(compilecpp, cwd).!
+
+    cExit == 0 && cppExit == 0
+  }
+
   /** Compiles rt to llvm ir using clang. */
   private def unpackRtlib(clang: File,
                           clangpp: File,
-                          classpath: Seq[String]): Unit = {
+                          classpath: Seq[String]): Boolean = {
     val nativelibjar = classpath.collectFirst {
       case p if p.contains("scala-native") && p.contains("nativelib") =>
         file(p)
@@ -88,13 +100,9 @@ object ScalaNativePluginInternal {
       IO.unzip(nativelibjar, nativelib)
       IO.write(jarhashfile, Hash(nativelibjar))
 
-      val cpaths     = (nativelib ** "*.c").get.map(abs)
-      val cpppaths   = (nativelib ** "*.cpp").get.map(abs)
-      val compilec   = abs(clang) +: (includes ++ ("-c" +: cpaths))
-      val compilecpp = abs(clangpp) +: (includes ++ ("-c" +: cpppaths))
-
-      Process(compilec, nativelib).!
-      Process(compilecpp, nativelib).!
+      compileCSources(clang, clangpp, nativelib)
+    } else {
+      true
     }
   }
 
@@ -179,7 +187,13 @@ object ScalaNativePluginInternal {
       discover("clang++", Seq(("3", "8"), ("3", "7")))
     },
     nativeClangOptions := {
-      includes ++ libs ++ maybeInjectShared(nativeSharedLibrary.value)
+      // We need to add `-lrt` for the POSIX realtime lib, which doesn't exist
+      // on macOS.
+      val lrt = Option(sys props "os.name") match {
+        case Some("Linux") => Seq("-lrt")
+        case _             => Seq()
+      }
+      includes ++ libs ++ maybeInjectShared(nativeSharedLibrary.value) ++ lrt
     },
     nativeSharedLibrary := false,
     testFrameworks += new TestFramework("scala.scalanative.test.Framework")
@@ -236,10 +250,16 @@ object ScalaNativePluginInternal {
         FileFunction.cached(streams.value.cacheDirectory / "native-cache",
                             FilesInfo.hash) { _ =>
           IO.createDirectory(target)
-          unpackRtlib(clang, clangpp, classpath)
-          val links = compileNir(opts).map(_.name)
-          compileLl(clangpp, target, appll, binary, links, linkage, clangOpts)
-          Set(binary)
+
+          val unpackSuccess = unpackRtlib(clang, clangpp, classpath)
+
+          if (unpackSuccess) {
+            val links = compileNir(opts).map(_.name)
+            compileLl(clangpp, target, appll, binary, links, linkage, clangOpts)
+            Set(binary)
+          } else {
+            throw new MessageOnlyException("Couldn't unpack nativelib.")
+          }
         }
 
       val _ = compileIfChanged(inputFiles)

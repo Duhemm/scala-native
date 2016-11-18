@@ -56,31 +56,26 @@ lazy val publishSettings = Seq(
   pomIncludeRepository := { x =>
     false
   },
+  homepage := Some(url("http://www.scala-native.org")),
+  startYear := Some(2015),
+  licenses := Seq(
+    "BSD-like" -> url("http://www.scala-lang.org/downloads/license.html")),
+  developers += Developer(
+    email = "denys.shabalin@epfl.ch",
+    id = "densh",
+    name = "Denys Shabalin",
+    url = url("http://den.sh")
+  ),
+  scmInfo := Some(
+    ScmInfo(
+      browseUrl = url("https://github.com/scala-native/scala-native"),
+      connection = "scm:git:git@github.com:scala-native/scala-native.git"
+    )),
   pomExtra := (
-    <url>https://github.com/scala-native/scala-native</url>
-    <inceptionYear>2015</inceptionYear>
-    <licenses>
-      <license>
-        <name>BSD-like</name>
-        <url>http://www.scala-lang.org/downloads/license.html</url>
-        <distribution>repo</distribution>
-      </license>
-    </licenses>
-    <scm>
-      <url>git@github.com:scala-native/scala-native.git</url>
-      <connection>scm:git@github.com:scala-native/scala-native.git</connection>
-    </scm>
     <issueManagement>
       <system>GitHub Issues</system>
       <url>https://github.com/scala-native/scala-native/issues</url>
     </issueManagement>
-    <developers>
-      <developer>
-        <id>densh</id>
-        <name>Denys Shabalin</name>
-        <url>http://den.sh</url>
-      </developer>
-    </developers>
   )
 )
 
@@ -196,7 +191,26 @@ lazy val sbtplugin =
     .dependsOn(tools, testInterface)
 
 lazy val nativelib =
-  project.in(file("nativelib")).settings(libSettings).settings(publishSettings)
+  project
+    .in(file("nativelib"))
+    .settings(libSettings)
+    .settings(publishSettings)
+    .settings(compile in Compile := {
+      val clang   = nativeClang.value
+      val clangpp = nativeClangPP.value
+      val source  = baseDirectory.value
+      val compileSuccess =
+        IO.withTemporaryDirectory { tmp =>
+          IO.copyDirectory(baseDirectory.value, tmp)
+          scala.scalanative.sbtplugin.ScalaNativePluginInternal
+            .compileCSources(clang, clangpp, tmp)
+        }
+      if (compileSuccess) {
+        (compile in Compile).value
+      } else {
+        sys.error("Compilation failed")
+      }
+    })
 
 lazy val javalib =
   project
@@ -286,7 +300,7 @@ lazy val tests =
             .split("/")
             .mkString(".")
         }.filter(_ != "tests.Suite").mkString("Seq(", ", ", ")")
-        val file = (sourceManaged in Compile).value / "tests" / "Disover.scala"
+        val file = (sourceManaged in Compile).value / "tests" / "Discover.scala"
         IO.write(file,
                  s"""
           package tests
@@ -333,6 +347,35 @@ lazy val testInterface =
       libraryDependencies += "org.scala-sbt" % "test-interface" % "1.0"
     )
 
+lazy val benchmarks =
+  project
+    .in(file("benchmarks"))
+    .settings(projectSettings)
+    .settings(noPublishSettings)
+    .settings(
+      sourceGenerators in Compile += Def.task {
+        val dir    = sourceDirectory.value
+        val prefix = dir.getAbsolutePath + "/main/scala/"
+        val benchmarks = (dir ** "*Benchmark.scala").get.map { f =>
+          f.getAbsolutePath
+            .replace(prefix, "")
+            .replace(".scala", "")
+            .split("/")
+            .mkString(".")
+        }.filter(_ != "benchmarks.Benchmark")
+          .mkString("Seq(new ", ", new ", ")")
+        val file = (sourceManaged in Compile).value / "benchmarks" / "Discover.scala"
+        IO.write(file,
+                 s"""
+          package benchmarks
+          object Discover {
+            val discovered: Seq[benchmarks.Benchmark[_]] = $benchmarks
+          }
+        """)
+        Seq(file)
+      }.taskValue
+    )
+
 commands ++= Seq(
   Command.command("cleanAll") { state =>
     "clean" ::
@@ -353,7 +396,8 @@ commands ++= Seq(
       "sandbox/run" ::
         "demoNative/run" ::
           "tests/run" ::
-            "scripted" ::
-              state
+            "benchmarks/run" ::
+              "scripted" ::
+                state
   }
 )
