@@ -344,3 +344,27 @@ lazy val benchmarks =
         Seq(file)
       }.taskValue
     )
+
+commands ++= Seq(
+  Command.command("cleanAll") { state =>
+    "clean" ::
+      "cleanCache" ::
+        "cleanLocal" ::
+          state
+  },
+  Command.command("publishLocalAll") { state =>
+    "nscplugin/publishLocal" ::
+      "nativelib/publishLocal" ::
+        "publishLocal" ::
+          state
+  },
+  Command.command("testAll") { state =>
+    "tools/test" ::
+      "sandbox/run" ::
+        "demoNative/run" ::
+          "tests/run" ::
+            "benchmarks/run" ::
+              "scripted" ::
+                state
+  }
+)
