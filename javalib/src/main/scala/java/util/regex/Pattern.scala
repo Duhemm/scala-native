@@ -11,6 +11,8 @@ object Pattern {
     println(regex)
     new Pattern
   }
+
+  def matches(regex: String, input: CharSequence): Boolean = ???
 }
 
 class Pattern {
@@ -18,4 +20,8 @@ class Pattern {
     println(seq.toString())
     Array()
   }
+
+  def split(input: CharSequence, limit: Int): Array[String] = ???
+
+  def matcher(seq: CharSequence): Matcher = ???
 }
