@@ -114,6 +114,7 @@ object ScalaNativePluginInternal {
     Process(compile, target).!
   }
 
+  private lazy val syntheticProjectsSuffix = "-native-test-main"
   lazy val projectSettings =
     unscopedSettings ++
       inConfig(Compile)(scopedSettings) ++
@@ -122,14 +123,48 @@ object ScalaNativePluginInternal {
 
   lazy val unscopedSettings = Seq(
     libraryDependencies ++= Seq(
-      "org.scala-native" %% "nativelib" % nativeVersion,
-      "org.scala-native" %% "javalib"   % nativeVersion,
-      "org.scala-native" %% "scalalib"  % nativeVersion
+      "org.scala-native" %% "nativelib"      % nativeVersion,
+      "org.scala-native" %% "javalib"        % nativeVersion,
+      "org.scala-native" %% "scalalib"       % nativeVersion,
+      "org.scala-native" %% "test-interface" % nativeVersion
     ),
     addCompilerPlugin(
       "org.scala-native" % "nscplugin" % nativeVersion cross CrossVersion.full),
     resolvers += Resolver.sonatypeRepo("snapshots")
   )
+
+  def derivedProjects(proj: ProjectDefinition[_]): Seq[Project] =
+    if (proj.projectOrigin != ProjectOrigin.DerivedProject) {
+      val id           = proj.id + syntheticProjectsSuffix
+      val reference    = LocalProject(proj.id)
+      val prepareTests = taskKey[Unit]("Set path to test binary.")
+      Seq(
+        Project(id, file(id))
+          .settings(
+            description := "Synthetic project that holds the test main.")
+          .settings(ScalaNativePlugin.projectSettings)
+          .settings(
+            scalaVersion := (scalaVersion in reference).value,
+            prepareTests := {
+              sys.props("scala.native.testbinary") =
+                (nativeLink in Test).value.toString
+            },
+            test := ((test in Test) dependsOn prepareTests).value,
+            definedTests in Test := {
+              (definedTests in Test in reference).value map TestUtilities.remapTestDefinition
+            },
+            sourceGenerators in Test += Def.task {
+              val out   = (sourceManaged in Test).value / "Main.scala"
+              val tests = (definedTests in Test in reference).value map TestUtilities.remapTestDefinition
+              IO.write(out, TestUtilities.createTestMain(tests))
+              Seq(out)
+            }.taskValue
+          )
+          .dependsOn(reference % "compile->compile;test->test")
+      )
+    } else {
+      Seq()
+    }
 
   lazy val defaultSettings = Seq(
     nativeClang := {
@@ -147,10 +182,11 @@ object ScalaNativePluginInternal {
       }
       includes ++ libs ++ maybeInjectShared(nativeSharedLibrary.value) ++ lrt
     },
-    nativeSharedLibrary := false
+    nativeSharedLibrary := false,
+    testFrameworks += new TestFramework("scala.scalanative.test.Framework")
   )
 
-  lazy val scopedSettings = Seq(
+  private lazy val scopedSettings = Seq(
     nativeVerbose := false,
     nativeEmitDependencyGraphPath := None,
     nativeLibraryLinkage := Map(),

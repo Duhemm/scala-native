@@ -32,6 +32,9 @@ object ScalaNativePlugin extends AutoPlugin {
       "Will create a shared library instead of a program with a main method.")
   }
 
+  override def derivedProjects(proj: ProjectDefinition[_]): Seq[Project] =
+    ScalaNativePluginInternal.derivedProjects(proj)
+
   override def projectSettings =
     ScalaNativePluginInternal.projectSettings
 }

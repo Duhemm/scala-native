@@ -188,7 +188,7 @@ lazy val sbtplugin =
                    publishLocal in scalalib)
         .evaluated
     )
-    .dependsOn(tools)
+    .dependsOn(tools, testInterface)
 
 lazy val nativelib =
   project
@@ -313,8 +313,22 @@ lazy val tests =
 lazy val sandbox =
   project
     .in(file("sandbox"))
-    .settings(projectSettings)
-    .settings(noPublishSettings)
+    .settings(
+      noPublishSettings,
+      scalaVersion := libScalaVersion
+    )
+    .enablePlugins(ScalaNativePlugin)
+
+lazy val testInterface =
+  project
+    .in(file("test-interface"))
+    .settings(
+      name := "test-interface",
+      baseSettings,
+      scalaVersion := libScalaVersion,
+      libraryDependencies += "org.scala-sbt" % "test-interface" % "1.0",
+      crossScalaVersions := Seq(libScalaVersion, toolScalaVersion)
+    )
 
 lazy val benchmarks =
   project
@@ -353,10 +367,14 @@ commands ++= Seq(
           state
   },
   Command.command("publishLocalAll") { state =>
-    "nscplugin/publishLocal" ::
-      "nativelib/publishLocal" ::
-        "publishLocal" ::
-          state
+    "project testInterface" ::
+      "+ publishLocal" ::
+        "project /" ::
+          "reload" ::
+            "nscplugin/publishLocal" ::
+              "nativelib/publishLocal" ::
+                "publishLocal" ::
+                  state
   },
   Command.command("testAll") { state =>
     "tools/test" ::
