@@ -330,6 +330,17 @@ lazy val testInterface =
       crossScalaVersions := Seq(libScalaVersion, toolScalaVersion)
     )
 
+lazy val utest =
+  project
+    .in(file("utest"))
+    .settings(projectSettings)
+    .settings(noPublishSettings)
+    .settings(nativeSharedLibrary := true)
+    .settings(
+      libraryDependencies += "org.scala-lang" % "scala-reflect"  % scalaVersion.value,
+      libraryDependencies += "org.scala-sbt"  % "test-interface" % " 1.0"
+    )
+
 lazy val benchmarks =
   project
     .in(file("benchmarks"))
