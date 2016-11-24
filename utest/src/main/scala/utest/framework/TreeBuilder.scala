@@ -24,8 +24,8 @@ object TreeBuilder {
 //    println(showCode(expr.tree))
     def render(t: Tree) = {
       t match {
-        case q"scala.Symbol.apply(${Literal(Constant(foo))})" => foo.toString
-        case Literal(Constant(foo))                           => foo.toString
+        case q"scala.Symbol.apply(${ Literal(Constant(foo)) })" => foo.toString
+        case Literal(Constant(foo))                             => foo.toString
       }
     }
     def matcher(i: Int): PartialFunction[Tree, (String, Tree, Int)] = {
@@ -107,7 +107,7 @@ object TreeBuilder {
 
     val (testTree, suite) = recurse(expr.tree, Vector())
 
-    val res = q"""$suite(this.getClass.getName.replace("$$", ""), $testTree)"""
+    val res = q"""$suite(this.getClass.getName, $testTree)""" //.replace("$$", ""), $testTree)"""
 //    println("==END==")
 //    println(showCode(res))
     // jump through some hoops to avoid using scala.Predef implicits,

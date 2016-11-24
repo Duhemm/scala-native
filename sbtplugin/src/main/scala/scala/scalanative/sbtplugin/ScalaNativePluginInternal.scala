@@ -252,17 +252,24 @@ object ScalaNativePluginInternal {
 
       val compileIfChanged =
         FileFunction.cached(streams.value.cacheDirectory / "native-cache",
-                            FilesInfo.hash) { _ =>
-          IO.createDirectory(target)
-          val unpackSuccess = unpackRtlib(clang, clangpp, classpath)
+                            FilesInfo.hash) {
+          _ =>
+            IO.createDirectory(target)
+            val unpackSuccess = unpackRtlib(clang, clangpp, classpath)
 
-          if (unpackSuccess) {
-            val links = compileNir(opts).map(_.name)
-            compileLl(clangpp, target, appll, binary, links, linkage, clangOpts)
-            Set(binary)
-          } else {
-            throw new MessageOnlyException("Couldn't unpack nativelib.")
-          }
+            if (unpackSuccess) {
+              val links = compileNir(opts).map(_.name)
+              compileLl(clangpp,
+                        target,
+                        appll,
+                        binary,
+                        links,
+                        linkage,
+                        clangOpts)
+              Set(binary)
+            } else {
+              throw new MessageOnlyException("Couldn't unpack nativelib.")
+            }
         }
 
       val _ = compileIfChanged(inputFiles)

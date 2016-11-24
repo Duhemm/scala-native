@@ -28,7 +28,7 @@ trait Formatter {
       case Success(()) => "Success"
       case Success(v) =>
         "Success " + ("\n" + v)
-          .replace("\n", "\n" + offset(r) + formatStartColor(true))
+      //.replace("\n", "\n" + offset(r) + formatStartColor(true))
       case Failure(e) => errorFormatter(e)
     }
 
@@ -44,8 +44,7 @@ trait Formatter {
   def formatSingle(path: Seq[String], r: Result): Option[String] = Some {
     path.map("." + _).mkString + "\t\t" + prettyTruncate(
       r,
-      e =>
-        s"${("\n" + e.toString).replace("\n", "\n" + (" " * r.name.length) + "\t\t" + formatStartColor(false))}"
+      e => s"${("\n" + e.toString)}" //.replace("\n", "\n" + (" " * r.name.length) + "\t\t" + formatStartColor(false))}"
     )
   }
 
@@ -59,6 +58,6 @@ trait Formatter {
           r.name + "\t\t" + prettyTruncate(r,
                                            errorFormatter,
                                            r => " " * r.name.length))
-      .reduce(_ + _.map("\n" + _).mkString.replace("\n", "\n    "))
+      .reduce(_ + _.map("\n" + _).mkString) //.replace("\n", "\n    "))
   }
 }

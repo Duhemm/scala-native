@@ -35,11 +35,8 @@ object TestUtilities {
             case NativeFingerprint =>
               s"""new ${test.name}().test()"""
             case UTest() =>
-              s"""val executor = new scala.concurrent.ExecutionContextExecutor {
-                 |  override def execute(arg0: Runnable): Unit = arg0.run()
-                 |  override def reportFailure(cause: Throwable): Unit = throw cause
-                 |}
-                 |${test.name}.tests.runAsync()(executor)""".stripMargin
+              s"""implicit val executor = utest.framework.ExecutionContext.RunNow
+                 |${test.name}.tests.runAsync()""".stripMargin
             case other =>
               throw new UnsupportedOperationException(
                 "Unsupported fingerprint: " + other)

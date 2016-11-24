@@ -31,9 +31,9 @@ abstract class BaseRunner(val args: Array[String],
                name: String,
                eventHandler: EventHandler) = {
     val suite: TestSuite = ???
-      // TestUtils.loadModule(name, testClassLoader).asInstanceOf[TestSuite]
-      // We won't need it -- commented to avoid issues with macros (macros can't
-      // be expanded in the same compiler run that defines them.)
+    // TestUtils.loadModule(name, testClassLoader).asInstanceOf[TestSuite]
+    // We won't need it -- commented to avoid issues with macros (macros can't
+    // be expanded in the same compiler run that defines them.)
     val selectorString = selector.mkString(".")
 
     def handleEvent(op: OptionalThrowable, st: Status) = {

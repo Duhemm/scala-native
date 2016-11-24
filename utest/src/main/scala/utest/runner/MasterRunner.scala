@@ -64,7 +64,7 @@ final class MasterRunner(args: Array[String],
             // since those are generally just spam (we already can see the outer failure)
             .collect {
               case (f, t) if t != "" =>
-                f + ("\n" + t).replace("\n", "\n" + Console.RED)
+                f + ("\n" + t) //.replace("\n", "\n" + Console.RED)
             }
             .mkString("\n")
         ).mkString("\n")

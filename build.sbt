@@ -257,7 +257,8 @@ lazy val scalalib =
         IO.copyDirectory(trgDir / "src" / "library" / "scala",
                          file("scalalib/src/main/scala/scala"))
 
-        IO.delete(file("scalalib/src/main/scala/scala/concurrent/impl/AbstractPromise.java"))
+        IO.delete(file(
+          "scalalib/src/main/scala/scala/concurrent/impl/AbstractPromise.java"))
 
         val epoch :: major :: _ = scalaVersion.value.split("\\.").toList
         IO.copyDirectory(file(s"scalalib/overrides-$epoch.$major/scala"),

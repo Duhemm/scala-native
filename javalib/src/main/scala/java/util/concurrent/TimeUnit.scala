@@ -1,6 +1,8 @@
 package java.util.concurrent
 
-sealed abstract class TimeUnit(private val id: Int) extends Serializable with Comparable[TimeUnit] {
+sealed abstract class TimeUnit(private val id: Int)
+    extends Serializable
+    with Comparable[TimeUnit] {
   import TimeUnit._
   override def compareTo(o: TimeUnit): Int =
     id.compareTo(o.id)
