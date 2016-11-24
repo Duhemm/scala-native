@@ -175,7 +175,11 @@ object ScalaNativePluginInternal {
               val tests = (definedTests in Test in reference).value map TestUtilities.remapTestDefinition
               IO.write(out, TestUtilities.createTestMain(tests))
               Seq(out)
-            }.taskValue
+            }.taskValue,
+            publishArtifact := false,
+            packagedArtifacts := Map.empty,
+            publish := {},
+            publishLocal := {}
           )
           .dependsOn(reference % "compile->compile;test->test")
       )
