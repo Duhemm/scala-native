@@ -164,7 +164,7 @@ lazy val tools =
         .dependsOn(publishLocal in util)
         .value
     )
-    .dependsOn(nir, util, testingCompilerInterface % Test)
+    .dependsOn(nir, util, llvmTools, testingCompilerInterface % Test)
 
 lazy val nscplugin =
   project
@@ -213,11 +213,15 @@ lazy val sbtScalaNative =
                    publishLocal in nscplugin,
                    publishLocal in nativelib,
                    publishLocal in javalib,
-                   publishLocal in scalalib)
+                   publishLocal in scalalib,
+                   publishLocal in llvmTools)
         .evaluated,
       publishLocal := publishLocal.dependsOn(publishLocal in tools).value
     )
     .dependsOn(tools)
+
+lazy val llvmTools =
+  project.in(file("llvm-tools")).settings(toolSettings)
 
 lazy val nativelib =
   project
@@ -228,11 +232,13 @@ lazy val nativelib =
       val clang   = nativeClang.value
       val clangpp = nativeClangPP.value
       val source  = baseDirectory.value
+      val logger = sys.process.ProcessLogger(l => streams.value.log.info(l),
+                                             l => streams.value.log.error(l))
       val compileSuccess =
         IO.withTemporaryDirectory { tmp =>
           IO.copyDirectory(baseDirectory.value, tmp)
-          scala.scalanative.sbtplugin.ScalaNativePluginInternal
-            .compileCSources(clang, clangpp, tmp, streams.value.log)
+          scala.scalanative.llvm.LLVM
+            .compileCSources(clang, clangpp, tmp, logger)
         }
       if (compileSuccess) {
         (compile in Compile).value
