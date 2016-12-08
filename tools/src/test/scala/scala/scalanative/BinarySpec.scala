@@ -85,14 +85,24 @@ abstract class BinarySpec extends CodeGenSpec {
              opts: Seq[String] = defaultClangOptions)(
       fn: (Int, Seq[String], Seq[String]) => T): T =
     makeBinary(entry, sources, driver, linkage, opts) {
-      case (_, _, binary) =>
-        val outLines = scala.collection.mutable.Buffer.empty[String]
-        val errLines = scala.collection.mutable.Buffer.empty[String]
-        val logger   = ProcessLogger(outLines += _, errLines += _)
-        val exitCode = Process(binary.getAbsolutePath) ! logger
-
-        fn(exitCode, outLines, errLines)
+      case (_, _, binary) => run(binary)(fn)
     }
+
+  /**
+   * Runs the given binary file.
+   *
+   * @param binary The binary file to run.
+   * @param fn     A function to apply to the output of the run.
+   * @return The result of applying `fn` to the output of the run.
+   */
+  def run[T](binary: File)(fn: (Int, Seq[String], Seq[String]) => T): T = {
+    val outLines = scala.collection.mutable.Buffer.empty[String]
+    val errLines = scala.collection.mutable.Buffer.empty[String]
+    val logger   = ProcessLogger(outLines += _, errLines += _)
+    val exitCode = Process(binary.getAbsolutePath) ! logger
+
+    fn(exitCode, outLines, errLines)
+  }
 
   private def write(virtual: VirtualFile): File = {
     val out = createTempFile("native-codegen", ".ll").toFile()
