@@ -14,6 +14,9 @@ sealed trait Driver {
 
   /** Append a pass to the pipeline. */
   def append(pass: PassCompanion): Driver
+
+  /** Removes a pass from the pipeline */
+  def remove(pass: PassCompanion): Driver
 }
 
 object Driver {
@@ -61,5 +64,8 @@ object Driver {
 
     def append(pass: PassCompanion): Driver =
       new Impl(passes :+ pass)
+
+    def remove(pass: PassCompanion): Driver =
+      new Impl(passes filterNot (_ == pass))
   }
 }
