@@ -23,6 +23,8 @@ sealed abstract class Global {
     case Global.Member(n, id) => Global.Member(n, s"$tag.$id")
     case _                    => util.unreachable
   }
+
+  override def toString(): String = id
 }
 object Global {
   final case object None extends Global {

@@ -55,6 +55,8 @@ object ClassHierarchy {
                     val traitNames: Seq[Global],
                     val isModule: Boolean)
       extends Scope {
+    override def toString(): String =
+      s"class $name"
     var range: Range           = _
     var parent: Option[Class]  = None
     var subclasses: Seq[Class] = Seq()
@@ -151,6 +153,8 @@ object ClassHierarchy {
                      val ty: nir.Type,
                      val isConcrete: Boolean)
       extends Node {
+        override def toString(): String =
+          s"method $name"
     var overrides: Seq[Method] = Seq()
     var overriden: Seq[Method] = Seq()
 

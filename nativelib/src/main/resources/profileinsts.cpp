@@ -35,6 +35,18 @@ extern "C" {
 		insts.insert_occ("stackalloc", 1);
 	}
 
+	void log_bin() {
+		insts.insert_occ("bin", 1);
+	}
+
+	void log_comp() {
+		insts.insert_occ("comp", 1);
+	}
+
+	void log_conv() {
+		insts.insert_occ("conv", 1);
+	}
+
 	void log_select() {
 		insts.insert_occ("select", 1);
 	}

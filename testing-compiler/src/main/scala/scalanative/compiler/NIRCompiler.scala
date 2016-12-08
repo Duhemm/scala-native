@@ -62,7 +62,7 @@ class NIRCompiler(outputDir: File) extends api.NIRCompiler {
                          msg: String,
                          severity: Severity): Unit = severity match {
       case INFO | WARNING => ()
-      case ERROR          => reportError(msg)
+      case ERROR          => reportError(msg + pos.toString)
     }
 
     override def displayPrompt(): Unit = ()

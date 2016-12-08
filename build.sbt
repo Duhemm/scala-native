@@ -425,7 +425,16 @@ commands += Command.command("bench") { state =>
             """set nativeProfileInfo in benchmarks := Some(file("/Users/martin/Desktop/bench-dump/dispatch.txt"))""" ::
               "benchmarks/run" ::
                 "set nativeProfileDispatch in benchmarks := false" ::
-                  "benchmarks/run" ::
-                    state
+                  "set nativeInlineCachingMaxCandidates in benchmarks := 1" ::
+                    "benchmarks/run" ::
+                      "set nativeInlineCachingMaxCandidates in benchmarks := 1" ::
+                        "benchmarks/run" ::
+                          "set nativeInlineCachingMaxCandidates in benchmarks := 3" ::
+                            "benchmarks/run" ::
+                              "set nativeInlineCachingMaxCandidates in benchmarks := 4" ::
+                                "benchmarks/run" ::
+                                  "set nativeInlineCachingMaxCandidates in benchmarks := 5" ::
+                                    "benchmarks/run" ::
+                                      state
 
 }

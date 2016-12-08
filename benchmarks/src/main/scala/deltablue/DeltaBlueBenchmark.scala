@@ -49,8 +49,8 @@ import scala.collection.mutable.{ArrayBuffer, ListBuffer, Stack}
 class DeltaBlueBenchmark extends benchmarks.Benchmark[Unit] {
 
   override def run(): Unit = {
-    chainTest(100)
-    projectionTest(100)
+    chainTest(1000)
+    projectionTest(1000)
   }
 
   override def check(t: Unit): Boolean =

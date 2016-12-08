@@ -10,15 +10,14 @@ class CopyPropagationBenchmark extends BenchmarkSpec with Matchers {
     val baseDriver     = Driver().remove(GlobalBoxingElimination)
     val improvedDriver = Driver()
 
-    benchmark("A$",
-              baseDriver,
-              improvedDriver,
-              20,
-              """object A {
-                |  def main(args: Array[String]): Unit =
-                |    println("Hello, world!")
-                |}""".stripMargin) {
-      case (base, improved) =>
+    compare("A$",
+            Seq((baseDriver, identity), (improvedDriver, identity)),
+            20,
+            """object A {
+              |  def main(args: Array[String]): Unit =
+              |    println("Hello, world!")
+              |}""".stripMargin) {
+      case Seq(base, improved) =>
         improved.avgNs should be < base.avgNs
     }
   }

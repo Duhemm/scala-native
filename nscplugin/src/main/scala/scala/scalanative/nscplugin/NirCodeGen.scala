@@ -868,6 +868,16 @@ abstract class NirCodeGen
         case _ =>
           val sym = fun.symbol
 
+          if (null eq sym) {
+            println("#" * 181)
+            println("WTF: " + fun)
+            println("-" * 181)
+            println(app)
+            println("fun.sym = " + fun.symbol)
+            println("#" * 181)
+            ???
+          }
+
           if (sym.isLabel) {
             genApplyLabel(app, focus)
           } else if (scalaPrimitives.isPrimitive(sym)) {

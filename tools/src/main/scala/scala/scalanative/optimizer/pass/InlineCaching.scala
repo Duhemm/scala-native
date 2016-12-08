@@ -28,39 +28,32 @@ class InlineCaching(dispatchInfo: Map[String, Seq[Int]],
    * @return The `Global` representing the concrete implementation of `meth`
    *         that should be used for `in`.
    */
-   private def findImpl(meth: Method, clss: Class): Option[Global] = {
-    lazy val allMethods =
-      clss.allmethods.filter(m => m.isConcrete && m.name.id == meth.name.id)
-
-    // Is the method directly defined in the class we're interested in?
-    lazy val direct =
-      if (meth.in == clss) Some(clss.name member meth.name.id) else None
-
-    // Is there a matching method in the class we're interested in?
-    lazy val inClass = allMethods find (_.in == clss) map (_.name)
-
-    // Did we find a single match in all the methods?
-    lazy val single = allMethods match {
-      case Seq(m) =>
-        m.in match {
-          case c: Class if c.isModule =>
-            val className = c.name.id.drop("module.".length)
-            Some(Global.Top(className) member m.name.id)
-          case other =>
-            Some(other.name member m.name.id)
-        }
-      case _ => None
-    }
-
-    // Lookup using the vtable
-    lazy val vtable = {
-      clss.vtable lift meth.vindex flatMap {
-        case v: Val.Global => Some(v.name)
-        case _             => None
+  private def findImpl(meth: Method, in: Scope): Option[Global] = {
+    def inScope(in: Scope): Option[Global] =
+      in.methods collectFirst {
+        case m if m.isConcrete && m.name.id == meth.name.id => m.name
       }
-    }
 
-    direct orElse inClass orElse single orElse vtable
+    lazy val parents =
+      in match {
+        case clss: Class =>
+          (clss.parentName.flatMap(top.classWithName) +:
+            clss.traitNames.reverse.map(top.traitWithName)).flatten
+
+        case trt: Trait =>
+          trt.traitNames.reverse.flatMap(top.traitWithName)
+
+        case _ =>
+          Seq.empty
+      }
+
+    lazy val direct =
+      (in +: parents).flatMap(inScope).headOption
+
+    lazy val inParent =
+      parents.flatMap(findImpl(meth, _)).headOption
+
+    direct orElse inParent
   }
 
   /**
@@ -163,7 +156,7 @@ class InlineCaching(dispatchInfo: Map[String, Seq[Int]],
                               clss: Class): Local => Block =
     next => {
       val blockName = fresh()
-      val impl      = findImpl(meth, clss) getOrElse ???
+      val impl      = findImpl(meth, clss) getOrElse (throw new Exception("Not found: " + meth.id + " in " + clss.id))
       val result    = fresh()
 
       Block(
@@ -227,60 +220,66 @@ class InlineCaching(dispatchInfo: Map[String, Seq[Int]],
 
         dispatchInfo getOrElse (key, Seq()) flatMap (top classWithId _) match {
           case allCandidates if allCandidates.nonEmpty =>
-            // We don't inline calls to all candidates, only the most frequent for
-            // performance.
-            val candidates = allCandidates take maxCandidates
+            try {
+              // We don't inline calls to all candidates, only the most frequent for
+              // performance.
+              val candidates = allCandidates take maxCandidates
 
-            val typeptr = Val.Local(fresh(), Type.Ptr)
-            // Instructions to load the type id of `obj` at runtime.
-            // The result is in `typeid`.
-            val loadTypePtr: Seq[Let] = Seq(
-              Let(typeptr.name, Op.Load(Type.Ptr, obj))
-            )
+              val typeptr = Val.Local(fresh(), Type.Ptr)
+              // Instructions to load the type id of `obj` at runtime.
+              // The result is in `typeid`.
+              val loadTypePtr: Seq[Let] = Seq(
+                Let(typeptr.name, Op.Load(Type.Ptr, obj))
+              )
 
-            // The blocks that give the address for an inlined call
-            val staticBlocks: Seq[Block] =
-              candidates map (makeStaticBlock(meth, call, _)(merge.name))
+              // The blocks that give the address for an inlined call
+              val staticBlocks: Seq[Block] =
+                candidates map (makeStaticBlock(meth, call, _)(merge.name))
 
-            // The type comparisons. The argument is the block to go to if the
-            // type test fails.
-            val typeComparisons: Seq[Local => Block] =
-              staticBlocks zip candidates map {
-                case (block, clss) =>
-                  makeTypeComparison(typeptr, clss.typeConst, block.name)
+              // The type comparisons. The argument is the block to go to if the
+              // type test fails.
+              val typeComparisons: Seq[Local => Block] =
+                staticBlocks zip candidates map {
+                  case (block, clss) =>
+                    makeTypeComparison(typeptr, clss.typeConst, block.name)
+                }
+
+              // If all type tests fail, we fallback to virtual dispatch.
+              val fallback: Block = {
+                val methptrptr = Val.Local(fresh(), Type.Ptr)
+                val methptr    = Val.Local(fresh(), Type.Ptr)
+                val newCall    = Let(call.copy(ptr = methptr))
+
+                Block(fresh(),
+                      Nil,
+                      Seq(
+                        Let(methptrptr.name,
+                            Op.Elem(cls.typeStruct,
+                                    typeptr,
+                                    Seq(Val.I32(0),
+                                        Val.I32(2), // index of vtable in type struct
+                                        Val.I32(meth.vindex)))),
+                        Let(methptr.name, Op.Load(Type.Ptr, methptrptr)),
+                        newCall,
+                        Inst.Jump(
+                          Next.Label(merge.name,
+                                     Seq(Val.Local(newCall.name, call.resty))))
+                      ))
               }
 
-            // If all type tests fail, we fallback to virtual dispatch.
-            val fallback: Block = {
-              val methptrptr = Val.Local(fresh(), Type.Ptr)
-              val methptr    = Val.Local(fresh(), Type.Ptr)
-              val newCall    = Let(call.copy(ptr = methptr))
+              // Execute start, load the typeid and jump to the first type test.
+              val start: Local => Block = typeComp =>
+                init.copy(
+                  insts = init.insts ++ loadTypePtr :+ Inst.Jump(Next(typeComp)))
 
-              Block(fresh(),
-                    Nil,
-                    Seq(
-                      Let(methptrptr.name,
-                          Op.Elem(cls.typeStruct,
-                                  typeptr,
-                                  Seq(Val.I32(0),
-                                      Val.I32(2), // index of vtable in type struct
-                                      Val.I32(meth.vindex)))),
-                      Let(methptr.name, Op.Load(Type.Ptr, methptrptr)),
-                      newCall,
-                      Inst.Jump(
-                        Next.Label(merge.name,
-                                   Seq(Val.Local(newCall.name, call.resty))))
-                    ))
+              linkBlocks(start +: typeComparisons)(fallback) ++
+                staticBlocks ++
+                addInlineCaching(enclosingDefn)(merge)
+            } catch {
+              case th: Throwable =>
+                println(th.getMessage)
+                Seq(block)
             }
-
-            // Execute start, load the typeid and jump to the first type test.
-            val start: Local => Block = typeComp =>
-              init.copy(
-                insts = init.insts ++ loadTypePtr :+ Inst.Jump(Next(typeComp)))
-
-            linkBlocks(start +: typeComparisons)(fallback) ++
-              staticBlocks ++
-              addInlineCaching(enclosingDefn)(merge)
 
           case _ =>
             Seq(block)

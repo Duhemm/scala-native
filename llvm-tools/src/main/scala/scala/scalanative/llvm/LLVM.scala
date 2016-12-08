@@ -14,7 +14,8 @@ object LLVM {
     file.getAbsolutePath
 
   private def running(command: Seq[String]): String =
-    "running" + nl + command.mkString(nl + "\t")
+    ""
+    // "running" + nl + command.mkString(nl + "\t")
 
   private def getFiles(base: File, filter: File => Boolean): Seq[File] =
     (if (filter(base)) Seq(base) else Seq()) ++

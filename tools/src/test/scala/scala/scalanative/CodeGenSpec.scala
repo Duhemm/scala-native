@@ -20,9 +20,10 @@ abstract class CodeGenSpec extends OptimizerSpec {
    */
   def codegen[T](entry: String,
                  sources: Map[String, String],
-                 driver: Driver = Driver())(fn: (Config, Seq[nir.Attr.Link],
+                 driver: Driver = Driver(),
+                 configFn: Config => Config = identity)(fn: (Config, Seq[nir.Attr.Link],
                                                  VirtualFile) => T): T =
-    optimize(entry, sources, driver) {
+    optimize(entry, sources, driver, configFn) {
       case (config, links, assembly) =>
         tools.codegen(config, assembly)
         val llFile =

@@ -40,10 +40,11 @@ abstract class BinarySpec extends CodeGenSpec {
   def makeBinary[T](entry: String,
                     sources: Map[String, String],
                     driver: Driver = Driver(),
+                    configFn: Config => Config = identity,
                     linkage: Map[String, String] = Map.empty,
                     opts: Seq[String] = defaultClangOptions)(
       fn: (Config, Seq[nir.Attr.Link], File) => T): T =
-    codegen(entry, sources, driver) {
+    codegen(entry, sources, driver, configFn) {
       case (config, links, llFile) =>
         val clangpp   = LLVM.discover("clang++", Seq(("3", "8"), ("3", "7")))
         val target    = createTempDirectory("native-test-target").toFile()
@@ -81,10 +82,11 @@ abstract class BinarySpec extends CodeGenSpec {
   def run[T](entry: String,
              sources: Map[String, String],
              driver: Driver = Driver(),
+             configFn: Config => Config = identity,
              linkage: Map[String, String] = Map.empty,
              opts: Seq[String] = defaultClangOptions)(
       fn: (Int, Seq[String], Seq[String]) => T): T =
-    makeBinary(entry, sources, driver, linkage, opts) {
+    makeBinary(entry, sources, driver, configFn, linkage, opts) {
       case (_, _, binary) => run(binary)(fn)
     }
 

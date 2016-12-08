@@ -19,9 +19,10 @@ abstract class OptimizerSpec extends LinkerSpec {
    */
   def optimize[T](entry: String,
                   sources: Map[String, String],
-                  driver: Driver = Driver())(fn: (Config, Seq[nir.Attr.Link],
+                  driver: Driver = Driver(),
+                  configFn: Config => Config = identity)(fn: (Config, Seq[nir.Attr.Link],
                                                   Seq[nir.Defn]) => T): T =
-    link(entry, sources, driver) {
+    link(entry, sources, driver, configFn) {
       case (config, links, assembly) =>
         fn(config, links, tools.optimize(config, driver, assembly))
     }

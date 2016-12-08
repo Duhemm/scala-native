@@ -39,7 +39,8 @@ object ScalaNativePluginInternal {
     file.getAbsolutePath
 
   private def running(command: Seq[String]): String =
-    "running" + nl + command.mkString(nl + "\t")
+    ""
+    // "running" + nl + command.mkString(nl + "\t")
 
   private def reportLinkingErrors(unresolved: Seq[nir.Global],
                                   logger: Logger): Nothing = {

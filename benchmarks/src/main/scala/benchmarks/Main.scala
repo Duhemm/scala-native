@@ -14,6 +14,6 @@ object Main {
 
     println(format.show(results))
 
-    if (success) exit(0) else exit(1)
+    if (!success) exit(1)
   }
 }
