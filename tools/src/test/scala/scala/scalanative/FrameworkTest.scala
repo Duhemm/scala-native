@@ -36,11 +36,9 @@ class FrameworkTest extends BinarySpec with Matchers {
     run("A$",
         """object A {
           |  def main(args: Array[String]): Unit = {
-          |    val x = new X
-          |    println(x.toString)
+          |    println("Hello, world!")
           |  }
-          |}
-          |class X { def hello = "Hello, world!" }""".stripMargin) {
+          |}""".stripMargin) {
       case (exit, out, err) =>
         exit should be(0)
         out should have length (1)

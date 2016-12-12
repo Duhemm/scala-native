@@ -40,9 +40,9 @@ trait Pass {
     Seq(
       Inst.Let(intPtr.name, Op.Conv(Conv.Ptrtoint, Type.I64, origin)),
       Inst.Let(targetV.name, Op.Bin(Bin.And, Type.I64, intPtr,  Val.I64(0x00000003))),
-      Inst.Let(unpacked.name, Op.Bin(Bin.And, Type.I64, intPtr, Val.I64(0x7FFFFFFE))),
+      Inst.Let(unpacked.name, Op.Bin(Bin.And, Type.I64, intPtr, Val.I64(0xFFFFFFFE))),
       Inst.Let(targetP.name, Op.Conv(Conv.Inttoptr, Type.Ptr, unpacked))
-    ) ++ fn(targetV, origin)
+    ) ++ fn(targetV, targetP)
 
   }
 
