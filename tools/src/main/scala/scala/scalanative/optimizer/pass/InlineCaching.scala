@@ -6,7 +6,7 @@ import scala.io.Source
 
 import analysis.ClassHierarchy._
 import analysis.ClassHierarchyExtractors._
-import analysis.ControlFlow, ControlFlow.Block
+import analysis.ControlFlow, ControlFlow.Block, ControlFlow.Graph
 import nir._, Inst.Let
 import util.sh, Shows._
 
@@ -15,7 +15,8 @@ import util.sh, Shows._
  * Transforms polymorphic call sites to a sequence of type tests and static
  * dispatches. Falls back to virtual dispatch if all type tests fail.
  */
-class InlineCaching(dispatchInfo: Map[String, Seq[Int]],
+class InlineCaching(config: tools.Config,
+                    dispatchInfo: Map[Int, Seq[Int]],
                     maxCandidates: Int)(implicit fresh: Fresh, top: Top)
     extends Pass {
   import InlineCaching._
@@ -169,6 +170,26 @@ class InlineCaching(dispatchInfo: Map[String, Seq[Int]],
       )
     }
 
+  private def makeStaticBlock2(meth: Method,
+                              call: Op.Call,
+                              clss: Class): Local => Block =
+    next => {
+      val blockName = fresh()
+      val impl      = findImpl(meth, clss) getOrElse (throw new Exception("Not found: " + meth.id + " in " + clss.id))
+      val result    = fresh()
+
+      Block(
+        blockName,
+        Nil,
+        Seq(
+          Let(Op.Call(log_improvedSig, log_improved, Seq())),
+          Let(result, call.copy(ptr = Val.Global(impl, Type.Ptr))),
+          Inst.Jump(Next.Label(next, Seq(Val.Local(result, call.resty))))
+        )
+      )
+    }
+
+
   /**
    * Generates a type comparison.
    *
@@ -183,13 +204,15 @@ class InlineCaching(dispatchInfo: Map[String, Seq[Int]],
                                  correspondingBlock: Local): Local => Block = {
     val comparison = Val.Local(fresh(), Type.Bool)
 
+    require(actualType.ty == desiredType.ty)
+
     (els: Local) =>
       Block(
         name = fresh(),
         params = Nil,
         insts = Seq(
           Let(comparison.name,
-              Op.Comp(Comp.Ieq, Type.Ptr, actualType, desiredType)),
+              Op.Comp(Comp.Ieq, actualType.ty, actualType, desiredType)),
           Inst.If(comparison, Next(correspondingBlock), Next(els))
         )
       )
@@ -205,7 +228,7 @@ class InlineCaching(dispatchInfo: Map[String, Seq[Int]],
     splitAt(isVirtualDispatch)(_.sliding(2).toSeq)(reuseLast)(block) match {
       case Some(
           (init,
-           Seq(inst @ Let(n, Op.Method(obj, MethodRef(cls: Class, meth))),
+           Seq(inst @ Let(n, Op.Method(packedObj, MethodRef(cls: Class, meth))),
                Let(_, call @ Op.Call(resty, ptr, args))),
            merge)) =>
         val reuse: Seq[Let] => Seq[Val.Local] = lets =>
@@ -218,7 +241,74 @@ class InlineCaching(dispatchInfo: Map[String, Seq[Int]],
           s"$enclosing -> $instName -> $methName"
         }
 
-        dispatchInfo getOrElse (key, Seq()) flatMap (top classWithId _) match {
+        dispatchInfo getOrElse (key.##, Seq()) flatMap (top classWithId _) match {
+          case allCandidates if allCandidates.nonEmpty && allCandidates.forall(c => config.typeAssignments(c.id) >= 0) =>
+              println("Doing some crazy stuff at " + key + " (" + key.## + ")")
+              try {
+              // We don't inline calls to all candidates, only the most frequent for
+              // performance.
+              val candidates = allCandidates take maxCandidates
+
+              val obj = Val.Local(fresh(), Type.Ptr)
+              val value = Val.Local(fresh(), Type.I64)
+              val loadStuff: Seq[Inst] =
+                unpacked(packedObj) {
+                  case (v, o) =>
+                    Seq(Let(obj.name, Op.Copy(o)),
+                        Let(value.name, Op.Copy(v)))
+                }
+
+              // The blocks that give the address for an inlined call
+              val staticBlocks: Seq[Block] =
+                candidates map (makeStaticBlock2(meth, call, _)(merge.name))
+
+              // The type comparisons. The argument is the block to go to if the
+              // type test fails.
+              val typeComparisons: Seq[Local => Block] =
+                staticBlocks zip candidates map {
+                  case (block, clss) =>
+                    makeTypeComparison(value, Val.I64(config.typeAssignments(clss.id).toLong), block.name)
+                }
+
+              // If all type tests fail, we fallback to virtual dispatch.
+              val fallback: Block = {
+                val typeptr    = Val.Local(fresh(), Type.Ptr)
+                val methptrptr = Val.Local(fresh(), Type.Ptr)
+                val methptr    = Val.Local(fresh(), Type.Ptr)
+                val newCall    = Let(call.copy(ptr = methptr))
+
+                Block(fresh(),
+                      Nil,
+                      Seq(
+                        Let(typeptr.name, Op.Load(Type.Ptr, obj)),
+                        Let(methptrptr.name,
+                            Op.Elem(cls.typeStruct,
+                                    typeptr,
+                                    Seq(Val.I32(0),
+                                        Val.I32(2), // index of vtable in type struct
+                                        Val.I32(meth.vindex)))),
+                        Let(methptr.name, Op.Load(Type.Ptr, methptrptr)),
+                        newCall,
+                        Inst.Jump(
+                          Next.Label(merge.name,
+                                     Seq(Val.Local(newCall.name, call.resty))))
+                      ))
+              }
+
+              // Execute start, load the typeid and jump to the first type test.
+              val start: Local => Block = typeComp =>
+                init.copy(
+                  insts = init.insts ++ loadStuff :+ Inst.Jump(Next(typeComp)))
+
+              linkBlocks(start +: typeComparisons)(fallback) ++
+                staticBlocks ++
+                addInlineCaching(enclosingDefn)(merge)
+            } catch {
+              case th: Throwable =>
+                println(th.getMessage)
+                Seq(block)
+            }
+
           case allCandidates if allCandidates.nonEmpty =>
             try {
               // We don't inline calls to all candidates, only the most frequent for
@@ -228,9 +318,11 @@ class InlineCaching(dispatchInfo: Map[String, Seq[Int]],
               val typeptr = Val.Local(fresh(), Type.Ptr)
               // Instructions to load the type id of `obj` at runtime.
               // The result is in `typeid`.
-              val loadTypePtr: Seq[Let] = Seq(
-                Let(typeptr.name, Op.Load(Type.Ptr, obj))
-              )
+              val loadTypePtr: Seq[Inst] =
+                unpacked(packedObj) {
+                  case (_, obj) =>
+                    Seq(Let(typeptr.name, Op.Load(Type.Ptr, obj)))
+                }
 
               // The blocks that give the address for an inlined call
               val staticBlocks: Seq[Block] =
@@ -298,13 +390,22 @@ class InlineCaching(dispatchInfo: Map[String, Seq[Int]],
 }
 
 object InlineCaching extends PassCompanion {
+
+  val log_improvedSig = Type.Function(Seq(), Type.Void)
+  val log_improved    = Val.Global(Global.Top("log_improved"), Type.Ptr)
+  val log_improvedDecl =
+    Defn.Declare(Attrs.None, log_improved.name, log_improvedSig)
+
+  override def injects =
+    Seq(log_improvedDecl)
+
   override def apply(config: tools.Config, top: Top) =
     config.profileDispatchInfo match {
       case Some(info) if info.exists =>
         val maxCandidates = config.inlineCachingMaxCandidates
         val dispatchInfo =
           analysis.DispatchInfoParser(Source.fromFile(info).mkString)
-        new InlineCaching(dispatchInfo, maxCandidates)(top.fresh, top)
+        new InlineCaching(config, dispatchInfo, maxCandidates)(top.fresh, top)
 
       case _ =>
         EmptyPass

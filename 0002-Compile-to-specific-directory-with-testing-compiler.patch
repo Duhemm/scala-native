@@ -1,0 +1,76 @@
+From 8965b547f72cbcf470c715474e33369ae1ae28b5 Mon Sep 17 00:00:00 2001
+From: Martin Duhem <martin.duhem@gmail.com>
+Date: Thu, 3 Nov 2016 15:34:04 +0100
+Subject: [PATCH 02/13] Compile to specific directory with testing compiler
+
+---
+ .../scalanative/testing/compiler/Compiler.scala    | 23 +++++++++++++++++++---
+ .../testing/compiler/CompilerTest.scala            |  8 +++++++-
+ 2 files changed, 27 insertions(+), 4 deletions(-)
+
+diff --git a/testing-optimizer/src/main/scala/scala/scalanative/testing/compiler/Compiler.scala b/testing-optimizer/src/main/scala/scala/scalanative/testing/compiler/Compiler.scala
+index b8b97ad..733bfe1 100644
+--- a/testing-optimizer/src/main/scala/scala/scalanative/testing/compiler/Compiler.scala
++++ b/testing-optimizer/src/main/scala/scala/scalanative/testing/compiler/Compiler.scala
+@@ -30,14 +30,31 @@ object Compiler {
+     val clazz = classLoader.loadClass("scala.scalanative.testing.compiler.NIRCompiler")
+     clazz.newInstance match {
+       case compiler: NIRCompiler => compiler
+-      case other                 => throw new Exception("WTF: " + other.getClass.getName)
++      case other                 => throw new ReflectiveOperationException(s"Expected an object of type `scala.scalanative.testing.compiler.NIRCompiler`, but found `${other.getClass.getName}`.")
+     }
+   }
+ 
++  def getCompiler(outDir: File): NIRCompiler = {
++    val clazz = classLoader.loadClass("scala.scalanative.testing.compiler.NIRCompiler")
++    val constructor = clazz.getConstructor(classOf[File])
++    constructor.newInstance(outDir) match {
++      case compiler: NIRCompiler => compiler
++      case other                 => throw new ReflectiveOperationException(s"Expected an object of type `scala.scalanative.testing.compiler.NIRCompiler`, but found `${other.getClass.getName}`.")
++    }
++  }
++
++  def apply[T](outDir: File)(fn: NIRCompiler => T): T =
++    withSources(outDir)(Map.empty) { case (_, compiler) => fn(compiler) }
++
+   def apply[T](fn: NIRCompiler => T): T =
+-    withSources(Map.empty) { case (_, compiler) => fn(compiler) }
++    withSources(Map.empty[String, String]) { case (_, compiler) => fn(compiler) }
++
++  def withSources[T](outDir: File)(sources: Map[String, String])(fn: (File, NIRCompiler) => T): T = {
++    val sourcesDir = writeSources(sources)
++    fn(sourcesDir, getCompiler(outDir))
++  }
+ 
+-  def withSources[T](sources: Map[String, String])(fn: (File, api.NIRCompiler) => T): T = {
++  def withSources[T](sources: Map[String, String])(fn: (File, NIRCompiler) => T): T = {
+     val sourcesDir = writeSources(sources)
+     fn(sourcesDir, getCompiler())
+   }
+diff --git a/testing-optimizer/src/test/scala/scala/scalanative/testing/compiler/CompilerTest.scala b/testing-optimizer/src/test/scala/scala/scalanative/testing/compiler/CompilerTest.scala
+index bfab716..7b7632f 100644
+--- a/testing-optimizer/src/test/scala/scala/scalanative/testing/compiler/CompilerTest.scala
++++ b/testing-optimizer/src/test/scala/scala/scalanative/testing/compiler/CompilerTest.scala
+@@ -4,7 +4,7 @@ package compiler
+ 
+ import org.scalatest._
+ 
+-class CompilerTest extends FlatSpec with Matchers {
++class CompilerTest extends FlatSpec with Matchers with Inspectors {
+ 
+   "The compiler" should "be able to get NIR files"in {
+     val files = Compiler { _ getNIR "class A" }
+@@ -36,4 +36,10 @@ class CompilerTest extends FlatSpec with Matchers {
+     }
+   }
+ 
++  it should "compile to a specified directory"in {
++    val temporaryDir = java.nio.file.Files.createTempDirectory("my-target").toFile()
++    val nirFiles = Compiler(outDir = temporaryDir) { _ getNIR "class A" }
++    forAll (nirFiles) { _.getParentFile should be(temporaryDir) }
++  }
++
+ }
+-- 
+2.9.3 (Apple Git-75)
+

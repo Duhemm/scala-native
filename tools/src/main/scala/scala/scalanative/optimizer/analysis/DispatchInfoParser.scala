@@ -6,6 +6,7 @@ import fastparse.WhitespaceApi
 import fastparse.noApi._
 
 import nir.parser.{Global, Local}
+import nir.parser.Base.int
 
 import util.sh
 import Shows._
@@ -18,22 +19,21 @@ object DispatchInfoParser {
   }
   import IgnoreWhitespace._
 
-  val number: P[Int] = P(CharIn('0' to '9').rep(1).!.map(_.toInt))
+  val dispatchHeader: P[Int] =
+    // P("=" ~ Global.parser.! ~ "->" ~ Local.parser.! ~ "->" ~ Global.parser.! ~ ":") map {
+    //   case (enclosing, inst, meth) => sh"$enclosing -> $inst -> $meth".toString
+    // }
+    "=" ~ int.! ~ ":" map (_.toInt)
 
-  val dispatchHeader: P[String] =
-    P("=" ~ Global.parser.! ~ "->" ~ Local.parser.! ~ "->" ~ Global.parser.! ~ ":") map {
-      case (enclosing, inst, meth) => sh"$enclosing -> $inst -> $meth".toString
-    }
-
-  val dispatchMethod: P[(String, Seq[Int])] =
-    dispatchHeader ~ (number ~ "(" ~ number ~ ")").rep(1) map {
+  val dispatchMethod: P[(Int, Seq[Int])] =
+    dispatchHeader ~ (int ~ "(" ~ int ~ ")").rep(1) map {
       case (header, tpes) => (header, tpes.sortBy(_._2).map(_._1).reverse)
     }
 
-  val dispatchInfo: P[Map[String, Seq[Int]]] =
+  val dispatchInfo: P[Map[Int, Seq[Int]]] =
     dispatchMethod.rep ~ End map (_.toMap)
 
-  def apply(in: String): Map[String, Seq[Int]] =
+  def apply(in: String): Map[Int, Seq[Int]] =
     dispatchInfo.parse(in) match {
       case Parsed.Success(info, _) => info
       case Parsed.Failure(_, _, _) => Map.empty

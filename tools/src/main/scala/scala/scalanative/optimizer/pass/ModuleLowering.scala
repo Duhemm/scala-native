@@ -66,6 +66,9 @@ class ModuleLowering(implicit top: Top, fresh: Fresh) extends Pass {
         Inst.Let(Op.Call(initSig, init, Seq(alloc)))
       }
 
+      val intPtr   = Val.Local(fresh(), Type.I64)
+      val unpacked = Val.Local(fresh(), Type.I64)
+      val obj      = Val.Local(fresh(), Type.Ptr)
       val loadName = clsName tag "load"
       val loadSig  = Type.Function(Seq(), clsTy)
       val loadDefn = Defn.Define(
@@ -80,7 +83,10 @@ class ModuleLowering(implicit top: Top, fresh: Fresh) extends Pass {
             Inst.Ret(self),
             Inst.Label(initialize, Seq()),
             Inst.Let(alloc.name, Op.Classalloc(clsName)),
-            Inst.Let(Op.Store(clsTy, value, alloc)),
+            Inst.Let(intPtr.name, Op.Conv(Conv.Ptrtoint, Type.I64, alloc)),
+            Inst.Let(unpacked.name, Op.Bin(Bin.And, Type.I64, intPtr, Val.I64(0xFFFFFFF8))),
+            Inst.Let(obj.name, Op.Conv(Conv.Inttoptr, Type.Ptr, unpacked)),
+            Inst.Let(Op.Store(clsTy, value, obj)),
             initCall,
             Inst.Ret(alloc)))
 

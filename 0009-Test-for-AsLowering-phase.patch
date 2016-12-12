@@ -1,0 +1,61 @@
+From cfb23f8f3071a994b13a39b518affe4d58217faf Mon Sep 17 00:00:00 2001
+From: Martin Duhem <martin.duhem@gmail.com>
+Date: Fri, 2 Dec 2016 10:40:04 +0100
+Subject: [PATCH 09/13] Test for `AsLowering` phase
+
+---
+ .../optimizer/pass/AsLoweringTest.scala            | 42 ++++++++++++++++++++++
+ 1 file changed, 42 insertions(+)
+ create mode 100644 tools/src/test/scala/scala/scalanative/optimizer/pass/AsLoweringTest.scala
+
+diff --git a/tools/src/test/scala/scala/scalanative/optimizer/pass/AsLoweringTest.scala b/tools/src/test/scala/scala/scalanative/optimizer/pass/AsLoweringTest.scala
+new file mode 100644
+index 0000000..ab1df4e
+--- /dev/null
++++ b/tools/src/test/scala/scala/scalanative/optimizer/pass/AsLoweringTest.scala
+@@ -0,0 +1,42 @@
++package scala.scalanative
++package optimizer
++package pass
++
++import analysis.ClassHierarchy.Top
++import util.sh
++import nir._
++import Shows._
++import tools._
++
++class AsLoweringTest extends OptimizerSpec {
++
++  "The `AsLoweringPhase`" should "have an effect (this is a self-test)" in {
++    val driver = Driver.empty.append(AsLoweringCheck)
++    assertThrows[org.scalatest.exceptions.TestFailedException] {
++      optimize("A$", code, driver) { case (_, _, _) => () }
++    }
++  }
++
++  it should "remove all occurrences of `Op.As`" in {
++    val driver = Driver.empty.append(AsLowering).append(AsLoweringCheck)
++    optimize("A$", code, driver) { case (_, _, _) => () }
++  }
++
++  private val code = """object A {
++                       |  def main(args: Array[String]): Unit =
++                       |    println(123.asInstanceOf[Double])
++                       |}""".stripMargin
++
++  private class AsLoweringCheck extends Pass {
++    override def preInst = {
++      case inst @ Inst.Let(_, _: Op.As) =>
++        val asString = sh"${inst: Inst}".toString
++        fail(s"""Found an occurrence of `Op.As` in:
++                |  $asString""".stripMargin)
++    }
++  }
++  private object AsLoweringCheck extends PassCompanion {
++    override def apply(config: Config, top: Top): Pass = new AsLoweringCheck
++  }
++
++}
+-- 
+2.9.3 (Apple Git-75)
+

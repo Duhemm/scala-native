@@ -14,6 +14,38 @@ trait Pass {
   type OnVal      = PartialFunction[Val, Val]
   type OnType     = PartialFunction[Type, Type]
 
+  def packed(value: Long)(let: Inst.Let)(implicit fresh: Fresh): Seq[Inst] = {
+    if (value <= 0 || value > 3) {
+      Seq(let)
+    } else {
+      val orig  = Val.Local(fresh(), let.op.resty)
+      val asInt = Val.Local(fresh(), Type.I64)
+      val pckd  = Val.Local(fresh(), Type.I64)
+
+      Seq(
+        Inst.Let(orig.name, let.op),
+        Inst.Let(asInt.name, Op.Conv(Conv.Ptrtoint, Type.I64, orig)),
+        Inst.Let(pckd.name, Op.Bin(Bin.Or, Type.I64, asInt, Val.I64(value))),
+        Inst.Let(let.name, Op.Conv(Conv.Inttoptr, Type.Ptr, pckd))
+      )
+    }
+  }
+
+  def unpacked(origin: Val)(fn: (Val, Val) => Seq[Inst])(implicit fresh: Fresh): Seq[Inst] = {
+    val intPtr   = Val.Local(fresh(), Type.I64)
+    val unpacked = Val.Local(fresh(), Type.I64)
+    val targetV  = Val.Local(fresh(), Type.I64)
+    val targetP  = Val.Local(fresh(), Type.Ptr)
+
+    Seq(
+      Inst.Let(intPtr.name, Op.Conv(Conv.Ptrtoint, Type.I64, origin)),
+      Inst.Let(targetV.name, Op.Bin(Bin.And, Type.I64, intPtr,  Val.I64(0x00000003))),
+      Inst.Let(unpacked.name, Op.Bin(Bin.And, Type.I64, intPtr, Val.I64(0x7FFFFFFE))),
+      Inst.Let(targetP.name, Op.Conv(Conv.Inttoptr, Type.Ptr, unpacked))
+    ) ++ fn(targetV, origin)
+
+  }
+
   def preAssembly: OnAssembly  = null
   def postAssembly: OnAssembly = null
   def preDefn: OnDefn          = null

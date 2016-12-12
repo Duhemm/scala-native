@@ -1,0 +1,1478 @@
+diff --git a/benchmarks/src/main/scala/benchmarks/Benchmark.scala b/benchmarks/src/main/scala/benchmarks/Benchmark.scala
+index 94e0f43..52dbf50 100644
+--- a/benchmarks/src/main/scala/benchmarks/Benchmark.scala
++++ b/benchmarks/src/main/scala/benchmarks/Benchmark.scala
+@@ -19,7 +19,7 @@ abstract class Benchmark[T] {
+ 
+   def iterations(): Int = {
+     // Run once to estimate how long this benchmark takes
+-    val nsPerBenchmark = 3e9.toLong
++    val nsPerBenchmark = 3e10.toLong
+     val timeEstimate   = estimateTime()
+     Math.max(1, (nsPerBenchmark / timeEstimate).toInt)
+   }
+diff --git a/benchmarks/src/main/scala/benchmarks/Main.scala b/benchmarks/src/main/scala/benchmarks/Main.scala
+index 50ca3b0..8f129b9 100644
+--- a/benchmarks/src/main/scala/benchmarks/Main.scala
++++ b/benchmarks/src/main/scala/benchmarks/Main.scala
+@@ -14,6 +14,6 @@ object Main {
+ 
+     println(format.show(results))
+ 
+-    if (success) exit(0) else exit(1)
++    if (!success) exit(1)
+   }
+ }
+diff --git a/benchmarks/src/main/scala/deltablue/DeltaBlueBenchmark.scala b/benchmarks/src/main/scala/deltablue/DeltaBlueBenchmark.scala
+index ac6d519..749b12d 100644
+--- a/benchmarks/src/main/scala/deltablue/DeltaBlueBenchmark.scala
++++ b/benchmarks/src/main/scala/deltablue/DeltaBlueBenchmark.scala
+@@ -49,8 +49,8 @@ import scala.collection.mutable.{ArrayBuffer, ListBuffer, Stack}
+ class DeltaBlueBenchmark extends benchmarks.Benchmark[Unit] {
+ 
+   override def run(): Unit = {
+-    chainTest(100)
+-    projectionTest(100)
++    chainTest(1000)
++    projectionTest(1000)
+   }
+ 
+   override def check(t: Unit): Boolean =
+diff --git a/build.sbt b/build.sbt
+index dbdfbe1..9c14d25 100644
+--- a/build.sbt
++++ b/build.sbt
+@@ -425,7 +425,16 @@ commands += Command.command("bench") { state =>
+             """set nativeProfileInfo in benchmarks := Some(file("/Users/martin/Desktop/bench-dump/dispatch.txt"))""" ::
+               "benchmarks/run" ::
+                 "set nativeProfileDispatch in benchmarks := false" ::
+-                  "benchmarks/run" ::
+-                    state
++                  "set nativeInlineCachingMaxCandidates in benchmarks := 1" ::
++                    "benchmarks/run" ::
++                      "set nativeInlineCachingMaxCandidates in benchmarks := 1" ::
++                        "benchmarks/run" ::
++                          "set nativeInlineCachingMaxCandidates in benchmarks := 3" ::
++                            "benchmarks/run" ::
++                              "set nativeInlineCachingMaxCandidates in benchmarks := 4" ::
++                                "benchmarks/run" ::
++                                  "set nativeInlineCachingMaxCandidates in benchmarks := 5" ::
++                                    "benchmarks/run" ::
++                                      state
+ 
+ }
+diff --git a/llvm-tools/src/main/scala/scala/scalanative/llvm/LLVM.scala b/llvm-tools/src/main/scala/scala/scalanative/llvm/LLVM.scala
+index b02f7b0..9a6a1ec 100644
+--- a/llvm-tools/src/main/scala/scala/scalanative/llvm/LLVM.scala
++++ b/llvm-tools/src/main/scala/scala/scalanative/llvm/LLVM.scala
+@@ -14,7 +14,8 @@ object LLVM {
+     file.getAbsolutePath
+ 
+   private def running(command: Seq[String]): String =
+-    "running" + nl + command.mkString(nl + "\t")
++    ""
++    // "running" + nl + command.mkString(nl + "\t")
+ 
+   private def getFiles(base: File, filter: File => Boolean): Seq[File] =
+     (if (filter(base)) Seq(base) else Seq()) ++
+diff --git a/nativelib/src/main/resources/profileinsts.cpp b/nativelib/src/main/resources/profileinsts.cpp
+index be3c543..1eb8205 100644
+--- a/nativelib/src/main/resources/profileinsts.cpp
++++ b/nativelib/src/main/resources/profileinsts.cpp
+@@ -35,6 +35,18 @@ extern "C" {
+ 		insts.insert_occ("stackalloc", 1);
+ 	}
+ 
++	void log_bin() {
++		insts.insert_occ("bin", 1);
++	}
++
++	void log_comp() {
++		insts.insert_occ("comp", 1);
++	}
++
++	void log_conv() {
++		insts.insert_occ("conv", 1);
++	}
++
+ 	void log_select() {
+ 		insts.insert_occ("select", 1);
+ 	}
+diff --git a/nir/src/main/scala/scala/scalanative/nir/Global.scala b/nir/src/main/scala/scala/scalanative/nir/Global.scala
+index 04b9e9e..3f1d14c 100644
+--- a/nir/src/main/scala/scala/scalanative/nir/Global.scala
++++ b/nir/src/main/scala/scala/scalanative/nir/Global.scala
+@@ -23,6 +23,8 @@ sealed abstract class Global {
+     case Global.Member(n, id) => Global.Member(n, s"$tag.$id")
+     case _                    => util.unreachable
+   }
++
++  override def toString(): String = id
+ }
+ object Global {
+   final case object None extends Global {
+diff --git a/nscplugin/src/main/scala/scala/scalanative/nscplugin/NirCodeGen.scala b/nscplugin/src/main/scala/scala/scalanative/nscplugin/NirCodeGen.scala
+index 30b954a..cda358f 100644
+--- a/nscplugin/src/main/scala/scala/scalanative/nscplugin/NirCodeGen.scala
++++ b/nscplugin/src/main/scala/scala/scalanative/nscplugin/NirCodeGen.scala
+@@ -868,6 +868,16 @@ abstract class NirCodeGen
+         case _ =>
+           val sym = fun.symbol
+ 
++          if (null eq sym) {
++            println("#" * 181)
++            println("WTF: " + fun)
++            println("-" * 181)
++            println(app)
++            println("fun.sym = " + fun.symbol)
++            println("#" * 181)
++            ???
++          }
++
+           if (sym.isLabel) {
+             genApplyLabel(app, focus)
+           } else if (scalaPrimitives.isPrimitive(sym)) {
+diff --git a/sbt-scala-native/src/main/scala/scala/scalanative/sbtplugin/ScalaNativePluginInternal.scala b/sbt-scala-native/src/main/scala/scala/scalanative/sbtplugin/ScalaNativePluginInternal.scala
+index 0f40879..47ef2be 100644
+--- a/sbt-scala-native/src/main/scala/scala/scalanative/sbtplugin/ScalaNativePluginInternal.scala
++++ b/sbt-scala-native/src/main/scala/scala/scalanative/sbtplugin/ScalaNativePluginInternal.scala
+@@ -39,7 +39,8 @@ object ScalaNativePluginInternal {
+     file.getAbsolutePath
+ 
+   private def running(command: Seq[String]): String =
+-    "running" + nl + command.mkString(nl + "\t")
++    ""
++    // "running" + nl + command.mkString(nl + "\t")
+ 
+   private def reportLinkingErrors(unresolved: Seq[nir.Global],
+                                   logger: Logger): Nothing = {
+diff --git a/testing-compiler/src/main/scala/scalanative/compiler/NIRCompiler.scala b/testing-compiler/src/main/scala/scalanative/compiler/NIRCompiler.scala
+index 5c674d9..1753616 100644
+--- a/testing-compiler/src/main/scala/scalanative/compiler/NIRCompiler.scala
++++ b/testing-compiler/src/main/scala/scalanative/compiler/NIRCompiler.scala
+@@ -62,7 +62,7 @@ class NIRCompiler(outputDir: File) extends api.NIRCompiler {
+                          msg: String,
+                          severity: Severity): Unit = severity match {
+       case INFO | WARNING => ()
+-      case ERROR          => reportError(msg)
++      case ERROR          => reportError(msg + pos.toString)
+     }
+ 
+     override def displayPrompt(): Unit = ()
+diff --git a/tools/src/main/scala/scala/scalanative/optimizer/analysis/ClassHierarchy.scala b/tools/src/main/scala/scala/scalanative/optimizer/analysis/ClassHierarchy.scala
+index b726f70..b7f2bc6 100644
+--- a/tools/src/main/scala/scala/scalanative/optimizer/analysis/ClassHierarchy.scala
++++ b/tools/src/main/scala/scala/scalanative/optimizer/analysis/ClassHierarchy.scala
+@@ -55,6 +55,8 @@ object ClassHierarchy {
+                     val traitNames: Seq[Global],
+                     val isModule: Boolean)
+       extends Scope {
++    override def toString(): String =
++      s"class $name"
+     var range: Range           = _
+     var parent: Option[Class]  = None
+     var subclasses: Seq[Class] = Seq()
+@@ -151,6 +153,8 @@ object ClassHierarchy {
+                      val ty: nir.Type,
+                      val isConcrete: Boolean)
+       extends Node {
++        override def toString(): String =
++          s"method $name"
+     var overrides: Seq[Method] = Seq()
+     var overriden: Seq[Method] = Seq()
+ 
+diff --git a/tools/src/main/scala/scala/scalanative/optimizer/pass/InlineCaching.scala b/tools/src/main/scala/scala/scalanative/optimizer/pass/InlineCaching.scala
+index 6b04017..3ee22eb 100644
+--- a/tools/src/main/scala/scala/scalanative/optimizer/pass/InlineCaching.scala
++++ b/tools/src/main/scala/scala/scalanative/optimizer/pass/InlineCaching.scala
+@@ -28,39 +28,32 @@ class InlineCaching(dispatchInfo: Map[String, Seq[Int]],
+    * @return The `Global` representing the concrete implementation of `meth`
+    *         that should be used for `in`.
+    */
+-   private def findImpl(meth: Method, clss: Class): Option[Global] = {
+-    lazy val allMethods =
+-      clss.allmethods.filter(m => m.isConcrete && m.name.id == meth.name.id)
++  private def findImpl(meth: Method, in: Scope): Option[Global] = {
++    def inScope(in: Scope): Option[Global] =
++      in.methods collectFirst {
++        case m if m.isConcrete && m.name.id == meth.name.id => m.name
++      }
+ 
+-    // Is the method directly defined in the class we're interested in?
+-    lazy val direct =
+-      if (meth.in == clss) Some(clss.name member meth.name.id) else None
+-
+-    // Is there a matching method in the class we're interested in?
+-    lazy val inClass = allMethods find (_.in == clss) map (_.name)
+-
+-    // Did we find a single match in all the methods?
+-    lazy val single = allMethods match {
+-      case Seq(m) =>
+-        m.in match {
+-          case c: Class if c.isModule =>
+-            val className = c.name.id.drop("module.".length)
+-            Some(Global.Top(className) member m.name.id)
+-          case other =>
+-            Some(other.name member m.name.id)
+-        }
+-      case _ => None
+-    }
++    lazy val parents =
++      in match {
++        case clss: Class =>
++          (clss.parentName.flatMap(top.classWithName) +:
++            clss.traitNames.reverse.map(top.traitWithName)).flatten
++
++        case trt: Trait =>
++          trt.traitNames.reverse.flatMap(top.traitWithName)
+ 
+-    // Lookup using the vtable
+-    lazy val vtable = {
+-      clss.vtable lift meth.vindex flatMap {
+-        case v: Val.Global => Some(v.name)
+-        case _             => None
++        case _ =>
++          Seq.empty
+       }
+-    }
+ 
+-    direct orElse inClass orElse single orElse vtable
++    lazy val direct =
++      (in +: parents).flatMap(inScope).headOption
++
++    lazy val inParent =
++      parents.flatMap(findImpl(meth, _)).headOption
++
++    direct orElse inParent
+   }
+ 
+   /**
+@@ -163,7 +156,7 @@ class InlineCaching(dispatchInfo: Map[String, Seq[Int]],
+                               clss: Class): Local => Block =
+     next => {
+       val blockName = fresh()
+-      val impl      = findImpl(meth, clss) getOrElse ???
++      val impl      = findImpl(meth, clss) getOrElse (throw new Exception("Not found: " + meth.id + " in " + clss.id))
+       val result    = fresh()
+ 
+       Block(
+@@ -227,61 +220,67 @@ class InlineCaching(dispatchInfo: Map[String, Seq[Int]],
+ 
+         dispatchInfo getOrElse (key, Seq()) flatMap (top classWithId _) match {
+           case allCandidates if allCandidates.nonEmpty =>
+-            // We don't inline calls to all candidates, only the most frequent for
+-            // performance.
+-            val candidates = allCandidates take maxCandidates
+-
+-            val typeptr = Val.Local(fresh(), Type.Ptr)
+-            // Instructions to load the type id of `obj` at runtime.
+-            // The result is in `typeid`.
+-            val loadTypePtr: Seq[Let] = Seq(
+-              Let(typeptr.name, Op.Load(Type.Ptr, obj))
+-            )
+-
+-            // The blocks that give the address for an inlined call
+-            val staticBlocks: Seq[Block] =
+-              candidates map (makeStaticBlock(meth, call, _)(merge.name))
+-
+-            // The type comparisons. The argument is the block to go to if the
+-            // type test fails.
+-            val typeComparisons: Seq[Local => Block] =
+-              staticBlocks zip candidates map {
+-                case (block, clss) =>
+-                  makeTypeComparison(typeptr, clss.typeConst, block.name)
++            try {
++              // We don't inline calls to all candidates, only the most frequent for
++              // performance.
++              val candidates = allCandidates take maxCandidates
++
++              val typeptr = Val.Local(fresh(), Type.Ptr)
++              // Instructions to load the type id of `obj` at runtime.
++              // The result is in `typeid`.
++              val loadTypePtr: Seq[Let] = Seq(
++                Let(typeptr.name, Op.Load(Type.Ptr, obj))
++              )
++
++              // The blocks that give the address for an inlined call
++              val staticBlocks: Seq[Block] =
++                candidates map (makeStaticBlock(meth, call, _)(merge.name))
++
++              // The type comparisons. The argument is the block to go to if the
++              // type test fails.
++              val typeComparisons: Seq[Local => Block] =
++                staticBlocks zip candidates map {
++                  case (block, clss) =>
++                    makeTypeComparison(typeptr, clss.typeConst, block.name)
++                }
++
++              // If all type tests fail, we fallback to virtual dispatch.
++              val fallback: Block = {
++                val methptrptr = Val.Local(fresh(), Type.Ptr)
++                val methptr    = Val.Local(fresh(), Type.Ptr)
++                val newCall    = Let(call.copy(ptr = methptr))
++
++                Block(fresh(),
++                      Nil,
++                      Seq(
++                        Let(methptrptr.name,
++                            Op.Elem(cls.typeStruct,
++                                    typeptr,
++                                    Seq(Val.I32(0),
++                                        Val.I32(2), // index of vtable in type struct
++                                        Val.I32(meth.vindex)))),
++                        Let(methptr.name, Op.Load(Type.Ptr, methptrptr)),
++                        newCall,
++                        Inst.Jump(
++                          Next.Label(merge.name,
++                                     Seq(Val.Local(newCall.name, call.resty))))
++                      ))
+               }
+ 
+-            // If all type tests fail, we fallback to virtual dispatch.
+-            val fallback: Block = {
+-              val methptrptr = Val.Local(fresh(), Type.Ptr)
+-              val methptr    = Val.Local(fresh(), Type.Ptr)
+-              val newCall    = Let(call.copy(ptr = methptr))
+-
+-              Block(fresh(),
+-                    Nil,
+-                    Seq(
+-                      Let(methptrptr.name,
+-                          Op.Elem(cls.typeStruct,
+-                                  typeptr,
+-                                  Seq(Val.I32(0),
+-                                      Val.I32(2), // index of vtable in type struct
+-                                      Val.I32(meth.vindex)))),
+-                      Let(methptr.name, Op.Load(Type.Ptr, methptrptr)),
+-                      newCall,
+-                      Inst.Jump(
+-                        Next.Label(merge.name,
+-                                   Seq(Val.Local(newCall.name, call.resty))))
+-                    ))
++              // Execute start, load the typeid and jump to the first type test.
++              val start: Local => Block = typeComp =>
++                init.copy(
++                  insts = init.insts ++ loadTypePtr :+ Inst.Jump(Next(typeComp)))
++
++              linkBlocks(start +: typeComparisons)(fallback) ++
++                staticBlocks ++
++                addInlineCaching(enclosingDefn)(merge)
++            } catch {
++              case th: Throwable =>
++                println(th.getMessage)
++                Seq(block)
+             }
+ 
+-            // Execute start, load the typeid and jump to the first type test.
+-            val start: Local => Block = typeComp =>
+-              init.copy(
+-                insts = init.insts ++ loadTypePtr :+ Inst.Jump(Next(typeComp)))
+-
+-            linkBlocks(start +: typeComparisons)(fallback) ++
+-              staticBlocks ++
+-              addInlineCaching(enclosingDefn)(merge)
+-
+           case _ =>
+             Seq(block)
+         }
+diff --git a/tools/src/main/scala/scala/scalanative/optimizer/pass/LogInsts.scala b/tools/src/main/scala/scala/scalanative/optimizer/pass/LogInsts.scala
+index 062eeff..a8736cf 100644
+--- a/tools/src/main/scala/scala/scalanative/optimizer/pass/LogInsts.scala
++++ b/tools/src/main/scala/scala/scalanative/optimizer/pass/LogInsts.scala
+@@ -37,6 +37,15 @@ class LogInsts(implicit fresh: Fresh) extends Pass {
+         case s: Stackalloc =>
+           Seq(call(log_stackallocSig, log_stackalloc), inst)
+ 
++        case b: Op.Bin =>
++          Seq(call(log_binSig, log_bin), inst)
++
++        case c: Op.Comp =>
++          Seq(call(log_compSig, log_comp), inst)
++
++        case c: Op.Conv =>
++          Seq(call(log_convSig, log_conv), inst)
++
+         case s: Select =>
+           Seq(call(log_selectSig, log_select), inst)
+ 
+@@ -80,6 +89,24 @@ object LogInsts extends PassCompanion {
+   val log_stackallocDecl =
+     Defn.Declare(Attrs.None, log_stackalloc.name, log_stackallocSig)
+ 
++<<<<<<< HEAD
++=======
++  val log_binSig = Type.Function(Seq(), Type.Void)
++  val log_bin    = Val.Global(Global.Top("log_bin"), Type.Ptr)
++  val log_binDecl =
++    Defn.Declare(Attrs.None, log_bin.name, log_binSig)
++
++  val log_compSig = Type.Function(Seq(), Type.Void)
++  val log_comp    = Val.Global(Global.Top("log_comp"), Type.Ptr)
++  val log_compDecl =
++    Defn.Declare(Attrs.None, log_comp.name, log_compSig)
++
++  val log_convSig = Type.Function(Seq(), Type.Void)
++  val log_conv    = Val.Global(Global.Top("log_conv"), Type.Ptr)
++  val log_convDecl =
++    Defn.Declare(Attrs.None, log_conv.name, log_convSig)
++
++>>>>>>> 971c8ad... Testing, benchmarks, stuff
+   val log_selectSig  = Type.Function(Seq(), Type.Void)
+   val log_select     = Val.Global(Global.Top("log_select"), Type.Ptr)
+   val log_selectDecl = Defn.Declare(Attrs.None, log_select.name, log_selectSig)
+@@ -92,6 +119,12 @@ object LogInsts extends PassCompanion {
+         log_extractDecl,
+         log_insertDecl,
+         log_stackallocDecl,
++<<<<<<< HEAD
++=======
++        log_binDecl,
++        log_compDecl,
++        log_convDecl,
++>>>>>>> 971c8ad... Testing, benchmarks, stuff
+         log_selectDecl)
+ 
+   override def apply(config: Config, top: Top): Pass =
+diff --git a/tools/src/test/scala/scala/scalanative/BenchmarkSpec.scala b/tools/src/test/scala/scala/scalanative/BenchmarkSpec.scala
+index 79e3c22..b79c279 100644
+--- a/tools/src/test/scala/scala/scalanative/BenchmarkSpec.scala
++++ b/tools/src/test/scala/scala/scalanative/BenchmarkSpec.scala
+@@ -3,42 +3,53 @@ package scala.scalanative
+ import java.io.File
+ 
+ import optimizer.Driver
++import tools.Config
+ 
+ abstract class BenchmarkSpec extends BinarySpec {
+ 
+-  case class BenchmarkResult(minNs: Long, maxNs: Long, avgNs: Long) {
++  case class BenchmarkResult(minNs: Long, maxNs: Long, avgNs: Long, output: String) {
+     override def toString(): String = {
+       def toMs(ns: Long): Double = ns.toDouble / 1000.0
+       val format = new java.text.DecimalFormat("#.###")
+       val minMs = format.format(toMs(minNs))
+       val maxMs = format.format(toMs(maxNs))
+       val avgMs = format.format(toMs(avgNs))
+-      s"min = ${minMs}ms, max = ${maxMs}ms, avg = ${avgMs}ms"
++      "-" * 181 +
++        s"""min = ${minMs}ms, max = ${maxMs}ms, avg = ${avgMs}ms,
++           |output =
++           |$output
++           |""".stripMargin +
++           "-" * 181
+     }
+   }
+ 
+-  private def timed[T](op: => T): Long = {
++  private def timed[T](op: => T): (T, Long) = {
+     val startTime = System.nanoTime()
+-    val _         = op
+-    System.nanoTime - startTime
++    val result    = op
++    val totalTime = System.nanoTime - startTime
++    (result, totalTime)
+   }
+ 
+   private def run(iterations: Int, binary: File): BenchmarkResult = {
+-    var minNs     = Long.MaxValue
+-    var maxNs     = Long.MinValue
+-    val total = timed {
++    var minNs        = Long.MaxValue
++    var maxNs        = Long.MinValue
++    val (out, total) = timed {
++      val out = collection.mutable.Buffer.empty[String]
+       for { _ <- 1 to iterations } {
+-        val time = timed { run(binary) { case _ => () } }
+-        minNs = minNs min time
+-        maxNs = maxNs max time
++        val (outPart, time) = timed { run(binary) { case (_, out, _) => out.mkString("\n") } }
++        minNs               = minNs min time
++        maxNs               = maxNs max time
++        out += outPart
+       }
++      out.mkString("\n")
+     }
+-    BenchmarkResult(minNs, maxNs, total)
++    BenchmarkResult(minNs, maxNs, total, out)
+   }
+ 
+   private def makeMain(entry: String,
+                        iterations: Int): String = {
+-    val call = "A.main(args)\n" * iterations
++
++    val call = s"${entry.substring(0, entry.length - 1)}.main(args)\n" * iterations
+     s"""object Benchmark {
+        |  def main(args: Array[String]): Unit = {
+        |    $call
+@@ -47,29 +58,38 @@ abstract class BenchmarkSpec extends BinarySpec {
+   }
+ 
+   def benchmark[T](entry: String,
+-                   baseDriver: Driver,
+-                   improvedDriver: Driver,
++                   driver: Driver,
++                   configFn: Config => Config,
+                    iterations: Int,
+                    sources: Map[String, String],
+                    linkage: Map[String, String] = Map.empty,
+-                   opts: Seq[String] = defaultClangOptions)(fn: (BenchmarkResult, BenchmarkResult) => T): T = {
+-
++                   opts: Seq[String] = defaultClangOptions)(fn: BenchmarkResult => T): T = {
+     val newSources =
+-      sources + ("Benchmark.scala" -> makeMain(xentry, iterations))
++      sources + ("Benchmark.scala" -> makeMain(entry, iterations))
+     val newEntry =
+       "Benchmark$"
+ 
+-    val baseResult =
+-      makeBinary(newEntry, newSources, baseDriver, linkage, opts) {
+-        case (_, _, baseBinary) => run(iterations, baseBinary)
++    val result =
++      makeBinary(newEntry, newSources, driver, configFn, linkage, opts) {
++        case (_, _, binary) => run(1, binary)
+       }
+ 
+-    val improvedResult =
+-      makeBinary(newEntry, newSources, improvedDriver, linkage, opts) {
+-        case (_, _, improvedBinary) => run(iterations, improvedBinary)
++    fn(result)
++  }
++
++  def compare[T](entry: String,
++                 setups: Seq[(Driver, Config => Config)],
++                 iterations: Int,
++                 sources: Map[String, String],
++                 linkage: Map[String, String] = Map.empty,
++                 opts: Seq[String] = defaultClangOptions)(fn: Seq[BenchmarkResult] => T): T = {
++
++    val results =
++      setups map { case (driver, configFn) =>
++        benchmark(entry, driver, configFn, iterations, sources, linkage, opts)(identity)
+       }
+ 
+-    fn(baseResult, improvedResult)
++    fn(results)
+   }
+ 
+ }
+diff --git a/tools/src/test/scala/scala/scalanative/BinarySpec.scala b/tools/src/test/scala/scala/scalanative/BinarySpec.scala
+index 34f998a..02bcd76 100644
+--- a/tools/src/test/scala/scala/scalanative/BinarySpec.scala
++++ b/tools/src/test/scala/scala/scalanative/BinarySpec.scala
+@@ -40,10 +40,11 @@ abstract class BinarySpec extends CodeGenSpec {
+   def makeBinary[T](entry: String,
+                     sources: Map[String, String],
+                     driver: Driver = Driver(),
++                    configFn: Config => Config = identity,
+                     linkage: Map[String, String] = Map.empty,
+                     opts: Seq[String] = defaultClangOptions)(
+       fn: (Config, Seq[nir.Attr.Link], File) => T): T =
+-    codegen(entry, sources, driver) {
++    codegen(entry, sources, driver, configFn) {
+       case (config, links, llFile) =>
+         val clangpp   = LLVM.discover("clang++", Seq(("3", "8"), ("3", "7")))
+         val target    = createTempDirectory("native-test-target").toFile()
+@@ -81,10 +82,11 @@ abstract class BinarySpec extends CodeGenSpec {
+   def run[T](entry: String,
+              sources: Map[String, String],
+              driver: Driver = Driver(),
++             configFn: Config => Config = identity,
+              linkage: Map[String, String] = Map.empty,
+              opts: Seq[String] = defaultClangOptions)(
+       fn: (Int, Seq[String], Seq[String]) => T): T =
+-    makeBinary(entry, sources, driver, linkage, opts) {
++    makeBinary(entry, sources, driver, configFn, linkage, opts) {
+       case (_, _, binary) => run(binary)(fn)
+     }
+ 
+diff --git a/tools/src/test/scala/scala/scalanative/CodeGenSpec.scala b/tools/src/test/scala/scala/scalanative/CodeGenSpec.scala
+index dee4099..952e22e 100644
+--- a/tools/src/test/scala/scala/scalanative/CodeGenSpec.scala
++++ b/tools/src/test/scala/scala/scalanative/CodeGenSpec.scala
+@@ -20,9 +20,10 @@ abstract class CodeGenSpec extends OptimizerSpec {
+    */
+   def codegen[T](entry: String,
+                  sources: Map[String, String],
+-                 driver: Driver = Driver())(fn: (Config, Seq[nir.Attr.Link],
++                 driver: Driver = Driver(),
++                 configFn: Config => Config = identity)(fn: (Config, Seq[nir.Attr.Link],
+                                                  VirtualFile) => T): T =
+-    optimize(entry, sources, driver) {
++    optimize(entry, sources, driver, configFn) {
+       case (config, links, assembly) =>
+         tools.codegen(config, assembly)
+         val llFile =
+diff --git a/tools/src/test/scala/scala/scalanative/InlineCachingSpec.scala b/tools/src/test/scala/scala/scalanative/InlineCachingSpec.scala
+new file mode 100644
+index 0000000..ddc23b5
+--- /dev/null
++++ b/tools/src/test/scala/scala/scalanative/InlineCachingSpec.scala
+@@ -0,0 +1,64 @@
++package scala.scalanative
++
++import java.io.File
++import java.nio.file.Files
++
++import optimizer.Driver
++import tools.Config
++
++abstract class InlineCachingSpec extends BenchmarkSpec {
++
++  def withInlineCaching[T](entry: String,
++                        driver: Driver,
++                        iterations: Int,
++                        configFn: Config => Config = identity,
++                        sources: Map[String, String],
++                        linkage: Map[String, String] = Map.empty,
++                        opts: Seq[String] = defaultClangOptions)(fn: BenchmarkResult => T): T = {
++    val configForProfiling =
++      (out: File) => configFn andThen (_.withProfileDispatch(true)
++                                        .withProfileDispatchInfo(Some(out)))
++
++    val configForBenchmarking =
++      (out: File) => configFn andThen (_.withProfileDispatchInfo(Some(out)))
++
++    val withProfilingConfigs = (configFn: Config => Config) => (cfg: Config) => configFn(cfg.withProfileDispatch(true))
++    val dispatchInfo = Files.createTempFile("dispatch", ".txt").toFile()
++
++    // Collect info
++    run(entry,
++        sources,
++        driver,
++        configForProfiling(dispatchInfo),
++        linkage,
++        opts)((_, _, _) => ())
++
++    assert(dispatchInfo.exists)
++
++    // Benchmark
++    benchmark(entry,
++              driver,
++              configForBenchmarking(dispatchInfo),
++              iterations,
++              sources,
++              linkage,
++              opts)(fn)
++
++  }
++
++  def withoutAndWith[T](entry: String,
++                 driver: Driver,
++                 iterations: Int,
++                 sources: Map[String, String],
++                 configFn: Config => Config = identity,
++                 linkage: Map[String, String] = Map.empty,
++                 opts: Seq[String] = defaultClangOptions)(fn: (BenchmarkResult, BenchmarkResult) => T): T = {
++    val baseResult =
++      benchmark(entry, driver, configFn, iterations, sources, linkage, opts)(identity)
++
++    val inlineCachingResult =
++      withInlineCaching(entry, driver, iterations, configFn, sources, linkage, opts)(identity)
++
++    fn(baseResult, inlineCachingResult)
++  }
++}
+diff --git a/tools/src/test/scala/scala/scalanative/LinkerSpec.scala b/tools/src/test/scala/scala/scalanative/LinkerSpec.scala
+index edd9804..893b586 100644
+--- a/tools/src/test/scala/scala/scalanative/LinkerSpec.scala
++++ b/tools/src/test/scala/scala/scalanative/LinkerSpec.scala
+@@ -30,14 +30,15 @@ abstract class LinkerSpec extends FlatSpec {
+    */
+   def link[T](entry: String,
+               sources: Map[String, String],
+-              driver: Driver = Driver())(fn: (Config, Seq[nir.Attr.Link],
++              driver: Driver = Driver(),
++              configFn: Config => Config = identity)(fn: (Config, Seq[nir.Attr.Link],
+                                               Seq[nir.Defn]) => T): T =
+     Scope { implicit in =>
+       val outDir     = Files.createTempDirectory("native-test-out").toFile()
+       val compiler   = NIRCompiler.getCompiler(outDir)
+       val sourcesDir = NIRCompiler.writeSources(sources)
+       val files      = compiler.compile(sourcesDir)
+-      val config     = makeConfig(outDir, entry)
++      val config     = configFn(makeConfig(outDir, entry))
+ 
+       val (_, links, defns) = tools.link(config, driver)
+ 
+diff --git a/tools/src/test/scala/scala/scalanative/OptimizerSpec.scala b/tools/src/test/scala/scala/scalanative/OptimizerSpec.scala
+index 5a40397..bfc5bb7 100644
+--- a/tools/src/test/scala/scala/scalanative/OptimizerSpec.scala
++++ b/tools/src/test/scala/scala/scalanative/OptimizerSpec.scala
+@@ -19,9 +19,10 @@ abstract class OptimizerSpec extends LinkerSpec {
+    */
+   def optimize[T](entry: String,
+                   sources: Map[String, String],
+-                  driver: Driver = Driver())(fn: (Config, Seq[nir.Attr.Link],
++                  driver: Driver = Driver(),
++                  configFn: Config => Config = identity)(fn: (Config, Seq[nir.Attr.Link],
+                                                   Seq[nir.Defn]) => T): T =
+-    link(entry, sources, driver) {
++    link(entry, sources, driver, configFn) {
+       case (config, links, assembly) =>
+         fn(config, links, tools.optimize(config, driver, assembly))
+     }
+diff --git a/tools/src/test/scala/scala/scalanative/optimizer/pass/GlobalBoxingEliminationBenchmark.scala b/tools/src/test/scala/scala/scalanative/optimizer/pass/GlobalBoxingEliminationBenchmark.scala
+index 35e5e3d..52e2d70 100644
+--- a/tools/src/test/scala/scala/scalanative/optimizer/pass/GlobalBoxingEliminationBenchmark.scala
++++ b/tools/src/test/scala/scala/scalanative/optimizer/pass/GlobalBoxingEliminationBenchmark.scala
+@@ -10,15 +10,14 @@ class CopyPropagationBenchmark extends BenchmarkSpec with Matchers {
+     val baseDriver     = Driver().remove(GlobalBoxingElimination)
+     val improvedDriver = Driver()
+ 
+-    benchmark("A$",
+-              baseDriver,
+-              improvedDriver,
+-              20,
+-              """object A {
+-                |  def main(args: Array[String]): Unit =
+-                |    println("Hello, world!")
+-                |}""".stripMargin) {
+-      case (base, improved) =>
++    compare("A$",
++            Seq((baseDriver, identity), (improvedDriver, identity)),
++            20,
++            """object A {
++              |  def main(args: Array[String]): Unit =
++              |    println("Hello, world!")
++              |}""".stripMargin) {
++      case Seq(base, improved) =>
+         improved.avgNs should be < base.avgNs
+     }
+   }
+diff --git a/tools/src/test/scala/scala/scalanative/optimizer/pass/InlineCachingBenchmark.scala b/tools/src/test/scala/scala/scalanative/optimizer/pass/InlineCachingBenchmark.scala
+new file mode 100644
+index 0000000..e3d4cea
+--- /dev/null
++++ b/tools/src/test/scala/scala/scalanative/optimizer/pass/InlineCachingBenchmark.scala
+@@ -0,0 +1,731 @@
++package scala.scalanative
++package optimizer
++package pass
++
++class InlineCachingBenchmark extends InlineCachingSpec {
++  "Inline caching" should "improve performance in DeltaBlue" in {
++    val sources =
++      """/*                     __                                               *\
++        |**     ________ ___   / /  ___      __ ____  Scala.js Benchmarks        **
++        |**    / __/ __// _ | / /  / _ | __ / // __/  (c) 2013, Jonas Fonseca    **
++        |**  __\ \/ /__/ __ |/ /__/ __ |/_// /_\ \                               **
++        |** /____/\___/_/ |_/____/_/ | |__/ /____/                               **
++        |**                          |/____/                                     **
++        |\*                                                                      */
++        |
++        |// Copyright 2011 Google Inc. All Rights Reserved.
++        |// Copyright 1996 John Maloney and Mario Wolczko
++        |//
++        |// This file is part of GNU Smalltalk.
++        |//
++        |// GNU Smalltalk is free software; you can redistribute it and/or modify it
++        |// under the terms of the GNU General Public License as published by the Free
++        |// Software Foundation; either version 2, or (at your option) any later version.
++        |//
++        |// GNU Smalltalk is distributed in the hope that it will be useful, but WITHOUT
++        |// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
++        |// FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
++        |// details.
++        |//
++        |// You should have received a copy of the GNU General Public License along with
++        |// GNU Smalltalk; see the file COPYING.  If not, write to the Free Software
++        |// Foundation, 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
++        |//
++        |// Translated first from Smalltalk to JavaScript, and finally to
++        |// Dart by Google 2008-2010.
++        |// Translated to Scala.js by Jonas Fonseca 2013
++        |
++        |package deltablue
++        |
++        |/**
++        | * A Scala implementation of the DeltaBlue constraint-solving
++        | * algorithm, as described in:
++        | *
++        | * "The DeltaBlue Algorithm: An Incremental Constraint Hierarchy Solver"
++        | *   Bjorn N. Freeman-Benson and John Maloney
++        | *   January 1990 Communications of the ACM,
++        | *   also available as University of Washington TR 89-08-06.
++        | *
++        | * Beware: this benchmark is written in a grotesque style where
++        | * the constraint model is built by side-effects from constructors.
++        | * I've kept it this way to avoid deviating too much from the original
++        | * implementation.
++        | */
++        |import scala.collection.mutable.{ArrayBuffer, ListBuffer, Stack}
++        |
++        |object DeltaBlue {
++        |
++        |  def main(args: Array[String]): Unit = {
++        |    chainTest(100)
++        |    projectionTest(100)
++        |  }
++        |  /**
++        |   * This is the standard DeltaBlue benchmark. A long chain of equality
++        |   * constraints is constructed with a stay constraint on one end. An
++        |   * edit constraint is then added to the opposite end and the time is
++        |   * measured for adding and removing this constraint, and extracting
++        |   * and executing a constraint satisfaction plan. There are two cases.
++        |   * In case 1, the added constraint is stronger than the stay
++        |   * constraint and values must propagate down the entire length of the
++        |   * chain. In case 2, the added constraint is weaker than the stay
++        |   * constraint so it cannot be accomodated. The cost in this case is,
++        |   * of course, very low. Typical situations lie somewhere between these
++        |   * two extremes.
++        |   */
++        |  def chainTest(n: Int) {
++        |    implicit val planner = new Planner()
++        |    var prev: Variable   = null
++        |    var first: Variable  = null
++        |    var last: Variable   = null
++        |
++        |    // Build chain of n equality constraints.
++        |    for (i <- 0 to n) {
++        |      val v = new Variable("v", 0)
++        |      if (prev != null) new EqualityConstraint(prev, v, REQUIRED)
++        |      if (i == 0) first = v
++        |      if (i == n) last = v
++        |      prev = v
++        |    }
++        |    new StayConstraint(last, STRONG_DEFAULT)
++        |    val edit = new EditConstraint(first, PREFERRED)
++        |    val plan = planner.extractPlanFromConstraints(Seq(edit))
++        |    for (i <- 0 until 100) {
++        |      first.value = i
++        |      plan.execute()
++        |      if (last.value != i) {
++        |        print("Chain test failed.\n{last.value)\n{i}")
++        |      }
++        |    }
++        |  }
++        |
++        |  /**
++        |   * This test constructs a two sets of variables related to each
++        |   * other by a simple linear transformation (scale and offset). The
++        |   * time is measured to change a variable on either side of the
++        |   * mapping and to change the scale and offset factors.
++        |   */
++        |  def projectionTest(n: Int) {
++        |    implicit val planner = new Planner()
++        |    val scale            = new Variable("scale", 10)
++        |    val offset           = new Variable("offset", 1000)
++        |    var src: Variable    = null
++        |    var dst: Variable    = null
++        |
++        |    val dests = new ArrayBuffer[Variable](n)
++        |    for (i <- 0 until n) {
++        |      src = new Variable("src", i)
++        |      dst = new Variable("dst", i)
++        |      dests += dst
++        |      new StayConstraint(src, NORMAL)
++        |      new ScaleConstraint(src, scale, offset, dst, REQUIRED)
++        |    }
++        |    change(src, 17)
++        |    if (dst.value != 1170) print("Projection 1 failed")
++        |    change(dst, 1050)
++        |    if (src.value != 5) print("Projection 2 failed")
++        |    change(scale, 5)
++        |    for (i <- 0 until n - 1) {
++        |      if (dests(i).value != i * 5 + 1000) print("Projection 3 failed")
++        |    }
++        |    change(offset, 2000)
++        |    for (i <- 0 until n - 1) {
++        |      if (dests(i).value != i * 5 + 2000) print("Projection 4 failed")
++        |    }
++        |  }
++        |
++        |  def change(v: Variable, newValue: Int)(implicit planner: Planner) {
++        |    val edit = new EditConstraint(v, PREFERRED)
++        |    val plan = planner.extractPlanFromConstraints(Seq(edit))
++        |    for (i <- 0 until 10) {
++        |      v.value = newValue
++        |      plan.execute()
++        |    }
++        |    edit.destroyConstraint
++        |  }
++        |}
++        |
++        |/**
++        | * Strengths are used to measure the relative importance of constraints.
++        | * New strengths may be inserted in the strength hierarchy without
++        | * disrupting current constraints.  Strengths cannot be created outside
++        | * this class, so == can be used for value comparison.
++        | */
++        |sealed class Strength(val value: Int, val name: String) {
++        |  def nextWeaker = value match {
++        |    case 0 => STRONG_PREFERRED
++        |    case 1 => PREFERRED
++        |    case 2 => STRONG_DEFAULT
++        |    case 3 => NORMAL
++        |    case 4 => WEAK_DEFAULT
++        |    case 5 => WEAKEST
++        |  }
++        |}
++        |
++        |case object REQUIRED         extends Strength(0, "required")
++        |case object STRONG_PREFERRED extends Strength(1, "strongPreferred")
++        |case object PREFERRED        extends Strength(2, "preferred")
++        |case object STRONG_DEFAULT   extends Strength(3, "strongDefault")
++        |case object NORMAL           extends Strength(4, "normal")
++        |case object WEAK_DEFAULT     extends Strength(5, "weakDefault")
++        |case object WEAKEST          extends Strength(6, "weakest")
++        |
++        |// Compile time computed constants.
++        |object Strength {
++        |
++        |  def stronger(s1: Strength, s2: Strength): Boolean =
++        |    s1.value < s2.value
++        |
++        |  def weaker(s1: Strength, s2: Strength): Boolean =
++        |    s1.value > s2.value
++        |
++        |  def weakest(s1: Strength, s2: Strength) =
++        |    if (weaker(s1, s2)) s1 else s2
++        |
++        |  def strongest(s1: Strength, s2: Strength) =
++        |    if (stronger(s1, s2)) s1 else s2
++        |}
++        |
++        |abstract class Constraint(val strength: Strength)(implicit planner: Planner) {
++        |
++        |  def isSatisfied(): Boolean
++        |  def markUnsatisfied(): Unit
++        |  def addToGraph(): Unit
++        |  def removeFromGraph(): Unit
++        |  def chooseMethod(mark: Int): Unit
++        |  def markInputs(mark: Int): Unit
++        |  def inputsKnown(mark: Int): Boolean
++        |  def output(): Variable
++        |  def execute(): Unit
++        |  def recalculate(): Unit
++        |
++        |  /// Activate this constraint and attempt to satisfy it.
++        |  def addConstraint() {
++        |    addToGraph()
++        |    planner.incrementalAdd(this)
++        |  }
++        |
++        |  /**
++        |   * Attempt to find a way to enforce this constraint. If successful,
++        |   * record the solution, perhaps modifying the current dataflow
++        |   * graph. Answer the constraint that this constraint overrides, if
++        |   * there is one, or nil, if there isn't.
++        |   * Assume: I am not already satisfied.
++        |   */
++        |  def satisfy(mark: Int): Constraint = {
++        |    chooseMethod(mark)
++        |    if (!isSatisfied()) {
++        |      if (strength == REQUIRED) {
++        |        print("Could not satisfy a required constraint!")
++        |      }
++        |      null
++        |    } else {
++        |      markInputs(mark)
++        |      val out        = output()
++        |      val overridden = out.determinedBy
++        |      if (overridden != null)
++        |        overridden.markUnsatisfied()
++        |      out.determinedBy = this
++        |      if (!planner.addPropagate(this, mark))
++        |        print("Cycle encountered")
++        |      out.mark = mark
++        |      overridden
++        |    }
++        |  }
++        |
++        |  def destroyConstraint {
++        |    if (isSatisfied())
++        |      planner.incrementalRemove(this)
++        |    removeFromGraph()
++        |  }
++        |
++        |  /**
++        |   * Normal constraints are not input constraints.  An input constraint
++        |   * is one that depends on external state, such as the mouse, the
++        |   * keybord, a clock, or some arbitraty piece of imperative code.
++        |   */
++        |  def isInput = false
++        |}
++        |
++        |/**
++        | * Abstract superclass for constraints having a single possible output variable.
++        | */
++        |abstract class UnaryConstraint(myOutput: Variable, strength: Strength)(
++        |    implicit planner: Planner)
++        |    extends Constraint(strength) {
++        |
++        |  private var satisfied = false
++        |
++        |  addConstraint()
++        |
++        |  /// Adds this constraint to the constraint graph
++        |  def addToGraph() {
++        |    myOutput.addConstraint(this)
++        |    satisfied = false
++        |  }
++        |
++        |  /// Decides if this constraint can be satisfied and records that decision.
++        |  def chooseMethod(mark: Int) {
++        |    satisfied = (myOutput.mark != mark) &&
++        |        Strength.stronger(strength, myOutput.walkStrength)
++        |  }
++        |
++        |  /// Returns true if this constraint is satisfied in the current solution.
++        |  def isSatisfied() = satisfied
++        |
++        |  def markInputs(mark: Int) {
++        |    // has no inputs.
++        |  }
++        |
++        |  /// Returns the current output variable.
++        |  def output() = myOutput
++        |
++        |  /**
++        |   * Calculate the walkabout strength, the stay flag, and, if it is
++        |   * 'stay', the value for the current output of this constraint. Assume
++        |   * this constraint is satisfied.
++        |   */
++        |  def recalculate() {
++        |    myOutput.walkStrength = strength
++        |    myOutput.stay = !isInput
++        |    if (myOutput.stay) execute(); // Stay optimization.
++        |  }
++        |
++        |  /// Records that this constraint is unsatisfied.
++        |  def markUnsatisfied() {
++        |    satisfied = false
++        |  }
++        |
++        |  def inputsKnown(mark: Int) = true
++        |
++        |  def removeFromGraph() {
++        |    if (myOutput != null) myOutput.removeConstraint(this)
++        |    satisfied = false
++        |  }
++        |}
++        |
++        |/**
++        | * Variables that should, with some level of preference, stay the same.
++        | * Planners may exploit the fact that instances, if satisfied, will not
++        | * change their output during plan execution.  This is called "stay
++        | * optimization".
++        | */
++        |class StayConstraint(v: Variable, str: Strength)(implicit planner: Planner)
++        |    extends UnaryConstraint(v, str) {
++        |  def execute() {
++        |    // Stay constraints do nothing.
++        |  }
++        |}
++        |
++        |/**
++        | * A unary input constraint used to mark a variable that the client
++        | * wishes to change.
++        | */
++        |class EditConstraint(v: Variable, str: Strength)(implicit planner: Planner)
++        |    extends UnaryConstraint(v, str) {
++        |
++        |  /// Edits indicate that a variable is to be changed by imperative code.
++        |  override val isInput = true
++        |
++        |  def execute() {
++        |    // Edit constraints do nothing.
++        |  }
++        |}
++        |
++        |object Direction {
++        |  final val NONE     = 1
++        |  final val FORWARD  = 2
++        |  final val BACKWARD = 0
++        |}
++        |
++        |/**
++        | * Abstract superclass for constraints having two possible output
++        | * variables.
++        | */
++        |abstract class BinaryConstraint(v1: Variable,
++        |                                v2: Variable,
++        |                                strength: Strength)(implicit planner: Planner)
++        |    extends Constraint(strength) {
++        |
++        |  protected var direction = Direction.NONE
++        |
++        |  addConstraint()
++        |
++        |  /**
++        |   * Decides if this constraint can be satisfied and which way it
++        |   * should flow based on the relative strength of the variables related,
++        |   * and record that decision.
++        |   */
++        |  def chooseMethod(mark: Int) {
++        |    if (v1.mark == mark) {
++        |      direction =
++        |        if ((v2.mark != mark && Strength.stronger(strength, v2.walkStrength)))
++        |          Direction.FORWARD
++        |        else
++        |          Direction.NONE
++        |    }
++        |    if (v2.mark == mark) {
++        |      direction =
++        |        if (v1.mark != mark && Strength.stronger(strength, v1.walkStrength))
++        |          Direction.BACKWARD
++        |        else
++        |          Direction.NONE
++        |    }
++        |    if (Strength.weaker(v1.walkStrength, v2.walkStrength)) {
++        |      direction =
++        |        if (Strength.stronger(strength, v1.walkStrength))
++        |          Direction.BACKWARD
++        |        else
++        |          Direction.NONE
++        |    } else {
++        |      direction =
++        |        if (Strength.stronger(strength, v2.walkStrength))
++        |          Direction.FORWARD
++        |        else
++        |          Direction.BACKWARD
++        |    }
++        |  }
++        |
++        |  /// Add this constraint to the constraint graph.
++        |  override def addToGraph() {
++        |    v1.addConstraint(this)
++        |    v2.addConstraint(this)
++        |    direction = Direction.NONE
++        |  }
++        |
++        |  /// Answer true if this constraint is satisfied in the current solution.
++        |  def isSatisfied() = direction != Direction.NONE
++        |
++        |  /// Mark the input variable with the given mark.
++        |  def markInputs(mark: Int) {
++        |    input().mark = mark
++        |  }
++        |
++        |  /// Returns the current input variable
++        |  def input() = if (direction == Direction.FORWARD) v1 else v2
++        |
++        |  /// Returns the current output variable.
++        |  def output() = if (direction == Direction.FORWARD) v2 else v1
++        |
++        |  /**
++        |   * Calculate the walkabout strength, the stay flag, and, if it is
++        |   * 'stay', the value for the current output of this
++        |   * constraint. Assume this constraint is satisfied.
++        |   */
++        |  def recalculate() {
++        |    val ihn = input()
++        |    val out = output()
++        |    out.walkStrength = Strength.weakest(strength, ihn.walkStrength)
++        |    out.stay = ihn.stay
++        |    if (out.stay) execute()
++        |  }
++        |
++        |  /// Record the fact that this constraint is unsatisfied.
++        |  def markUnsatisfied() {
++        |    direction = Direction.NONE
++        |  }
++        |
++        |  def inputsKnown(mark: Int): Boolean = {
++        |    val i = input()
++        |    i.mark == mark || i.stay || i.determinedBy == null
++        |  }
++        |
++        |  def removeFromGraph() {
++        |    if (v1 != null) v1.removeConstraint(this)
++        |    if (v2 != null) v2.removeConstraint(this)
++        |    direction = Direction.NONE
++        |  }
++        |}
++        |
++        |/**
++        | * Relates two variables by the linear scaling relationship: "v2 =
++        | * (v1 * scale) + offset". Either v1 or v2 may be changed to maintain
++        | * this relationship but the scale factor and offset are considered
++        | * read-only.
++        | */
++        |class ScaleConstraint(v1: Variable,
++        |                      scale: Variable,
++        |                      offset: Variable,
++        |                      v2: Variable,
++        |                      strength: Strength)(implicit planner: Planner)
++        |    extends BinaryConstraint(v1, v2, strength) {
++        |
++        |  /// Adds this constraint to the constraint graph.
++        |  override def addToGraph() {
++        |    super.addToGraph()
++        |    scale.addConstraint(this)
++        |    offset.addConstraint(this)
++        |  }
++        |
++        |  override def removeFromGraph() {
++        |    super.removeFromGraph()
++        |    if (scale != null) scale.removeConstraint(this)
++        |    if (offset != null) offset.removeConstraint(this)
++        |  }
++        |
++        |  override def markInputs(mark: Int) {
++        |    super.markInputs(mark)
++        |    scale.mark = mark
++        |    offset.mark = mark
++        |  }
++        |
++        |  /// Enforce this constraint. Assume that it is satisfied.
++        |  def execute() {
++        |    if (direction == Direction.FORWARD) {
++        |      v2.value = v1.value * scale.value + offset.value
++        |    } else {
++        |      // XXX: Truncates the resulting value
++        |      v1.value = (v2.value - offset.value) / scale.value
++        |    }
++        |  }
++        |
++        |  /**
++        |   * Calculate the walkabout strength, the stay flag, and, if it is
++        |   * 'stay', the value for the current output of this constraint. Assume
++        |   * this constraint is satisfied.
++        |   */
++        |  override def recalculate() {
++        |    val ihn = input()
++        |    val out = output()
++        |    out.walkStrength = Strength.weakest(strength, ihn.walkStrength)
++        |    out.stay = ihn.stay && scale.stay && offset.stay
++        |    if (out.stay) execute()
++        |  }
++        |
++        |}
++        |
++        |/**
++        | * Constrains two variables to have the same value.
++        | */
++        |class EqualityConstraint(v1: Variable, v2: Variable, strength: Strength)(
++        |    implicit planner: Planner)
++        |    extends BinaryConstraint(v1, v2, strength) {
++        |  /// Enforce this constraint. Assume that it is satisfied.
++        |  def execute() {
++        |    output().value = input().value
++        |  }
++        |}
++        |
++        |/**
++        | * A constrained variable. In addition to its value, it maintain the
++        | * structure of the constraint graph, the current dataflow graph, and
++        | * various parameters of interest to the DeltaBlue incremental
++        | * constraint solver.
++        | */
++        |class Variable(val name: String, var value: Int) {
++        |
++        |  val constraints              = new ListBuffer[Constraint]()
++        |  var determinedBy: Constraint = null
++        |  var mark                     = 0
++        |  var walkStrength: Strength   = WEAKEST
++        |  var stay                     = true
++        |
++        |  /**
++        |   * Add the given constraint to the set of all constraints that refer
++        |   * this variable.
++        |   */
++        |  def addConstraint(c: Constraint) {
++        |    constraints += c
++        |  }
++        |
++        |  /// Removes all traces of c from this variable.
++        |  def removeConstraint(c: Constraint) {
++        |    constraints -= c
++        |    if (determinedBy == c) determinedBy = null
++        |  }
++        |}
++        |
++        |class Planner {
++        |
++        |  var currentMark = 0
++        |
++        |  /**
++        |   * Attempt to satisfy the given constraint and, if successful,
++        |   * incrementally update the dataflow graph.  Details: If satifying
++        |   * the constraint is successful, it may override a weaker constraint
++        |   * on its output. The algorithm attempts to resatisfy that
++        |   * constraint using some other method. This process is repeated
++        |   * until either a) it reaches a variable that was not previously
++        |   * determined by any constraint or b) it reaches a constraint that
++        |   * is too weak to be satisfied using any of its methods. The
++        |   * variables of constraints that have been processed are marked with
++        |   * a unique mark value so that we know where we've been. This allows
++        |   * the algorithm to avoid getting into an infinite loop even if the
++        |   * constraint graph has an inadvertent cycle.
++        |   */
++        |  def incrementalAdd(c: Constraint) {
++        |    val mark       = newMark()
++        |    var overridden = c.satisfy(mark)
++        |    while (overridden != null) overridden = overridden.satisfy(mark)
++        |  }
++        |
++        |  /**
++        |   * Entry point for retracting a constraint. Remove the given
++        |   * constraint and incrementally update the dataflow graph.
++        |   * Details: Retracting the given constraint may allow some currently
++        |   * unsatisfiable downstream constraint to be satisfied. We therefore collect
++        |   * a list of unsatisfied downstream constraints and attempt to
++        |   * satisfy each one in turn. This list is traversed by constraint
++        |   * strength, strongest first, as a heuristic for avoiding
++        |   * unnecessarily adding and then overriding weak constraints.
++        |   * Assume: [c] is satisfied.
++        |   */
++        |  def incrementalRemove(c: Constraint) {
++        |    val out = c.output()
++        |    c.markUnsatisfied()
++        |    c.removeFromGraph()
++        |    val unsatisfied        = removePropagateFrom(out)
++        |    var strength: Strength = REQUIRED
++        |    do {
++        |      for (u <- unsatisfied) {
++        |        if (u.strength == strength) incrementalAdd(u)
++        |      }
++        |      strength = strength.nextWeaker
++        |    } while (strength != WEAKEST)
++        |  }
++        |
++        |  /// Select a previously unused mark value.
++        |  def newMark(): Int = {
++        |    currentMark += 1
++        |    currentMark
++        |  }
++        |
++        |  /**
++        |   * Extract a plan for resatisfaction starting from the given source
++        |   * constraints, usually a set of input constraints. This method
++        |   * assumes that stay optimization is desired; the plan will contain
++        |   * only constraints whose output variables are not stay. Constraints
++        |   * that do no computation, such as stay and edit constraints, are
++        |   * not included in the plan.
++        |   * Details: The outputs of a constraint are marked when it is added
++        |   * to the plan under construction. A constraint may be appended to
++        |   * the plan when all its input variables are known. A variable is
++        |   * known if either a) the variable is marked (indicating that has
++        |   * been computed by a constraint appearing earlier in the plan), b)
++        |   * the variable is 'stay' (i.e. it is a constant at plan execution
++        |   * time), or c) the variable is not determined by any
++        |   * constraint. The last provision is for past states of history
++        |   * variables, which are not stay but which are also not computed by
++        |   * any constraint.
++        |   * Assume: [sources] are all satisfied.
++        |   */
++        |  def makePlan(sources: Stack[Constraint]) = {
++        |    val mark = newMark()
++        |    val plan = new Plan()
++        |    val todo = sources
++        |    while (!todo.isEmpty) {
++        |      val c = todo.pop()
++        |      if (c.output().mark != mark && c.inputsKnown(mark)) {
++        |        plan.addConstraint(c)
++        |        c.output().mark = mark
++        |        addConstraintsConsumingTo(c.output(), todo)
++        |      }
++        |    }
++        |    plan
++        |  }
++        |
++        |  /**
++        |   * Extract a plan for resatisfying starting from the output of the
++        |   * given [constraints], usually a set of input constraints.
++        |   */
++        |  def extractPlanFromConstraints(constraints: Seq[Constraint]) = {
++        |    val sources = new Stack[Constraint]()
++        |    for (c <- constraints) {
++        |      // if not in plan already and eligible for inclusion.
++        |      if (c.isInput && c.isSatisfied()) sources.push(c)
++        |    }
++        |    makePlan(sources)
++        |  }
++        |
++        |  /**
++        |   * Recompute the walkabout strengths and stay flags of all variables
++        |   * downstream of the given constraint and recompute the actual
++        |   * values of all variables whose stay flag is true. If a cycle is
++        |   * detected, remove the given constraint and answer
++        |   * false. Otherwise, answer true.
++        |   * Details: Cycles are detected when a marked variable is
++        |   * encountered downstream of the given constraint. The sender is
++        |   * assumed to have marked the inputs of the given constraint with
++        |   * the given mark. Thus, encountering a marked node downstream of
++        |   * the output constraint means that there is a path from the
++        |   * constraint's output to one of its inputs.
++        |   */
++        |  def addPropagate(c: Constraint, mark: Int): Boolean = {
++        |    val todo = new Stack[Constraint]().push(c)
++        |    while (!todo.isEmpty) {
++        |      val d = todo.pop()
++        |      if (d.output().mark == mark) {
++        |        incrementalRemove(c)
++        |        return false
++        |      }
++        |      d.recalculate()
++        |      addConstraintsConsumingTo(d.output(), todo)
++        |    }
++        |    true
++        |  }
++        |
++        |  /**
++        |   * Update the walkabout strengths and stay flags of all variables
++        |   * downstream of the given constraint. Answer a collection of
++        |   * unsatisfied constraints sorted in order of decreasing strength.
++        |   */
++        |  def removePropagateFrom(out: Variable): Seq[Constraint] = {
++        |    out.determinedBy = null
++        |    out.walkStrength = WEAKEST
++        |    out.stay = true
++        |    val unsatisfied = new ListBuffer[Constraint]()
++        |    val todo        = new Stack[Variable]().push(out)
++        |    while (!todo.isEmpty) {
++        |      val v = todo.pop()
++        |      for (c <- v.constraints) {
++        |        if (!c.isSatisfied()) unsatisfied += c
++        |      }
++        |      val determining = v.determinedBy
++        |      for (next <- v.constraints) {
++        |        if (next != determining && next.isSatisfied()) {
++        |          next.recalculate()
++        |          todo.push(next.output())
++        |        }
++        |      }
++        |    }
++        |    unsatisfied
++        |  }
++        |
++        |  def addConstraintsConsumingTo(v: Variable, coll: Stack[Constraint]) {
++        |    val determining = v.determinedBy
++        |    for (c <- v.constraints) {
++        |      if (c != determining && c.isSatisfied()) coll.push(c)
++        |    }
++        |  }
++        |}
++        |
++        |/**
++        | * A Plan is an ordered list of constraints to be executed in sequence
++        | * to resatisfy all currently satisfiable constraints in the face of
++        | * one or more changing inputs.
++        | */
++        |class Plan {
++        |  private val list = new ListBuffer[Constraint]()
++        |
++        |  def addConstraint(c: Constraint) {
++        |    list += c
++        |  }
++        |
++        |  def execute() {
++        |    for (constraint <- list) {
++        |      constraint.execute()
++        |    }
++        |  }
++        |}""".stripMargin
++
++    withoutAndWith("deltablue.DeltaBlue$",
++            Driver(),
++            1,
++            sources) {
++      case (base, ic) =>
++        println("#" * 181)
++        println("Base:\n" + base)
++        println("IC  :\n" + ic)
++        println("#" * 181)
++    }
++  }
++}

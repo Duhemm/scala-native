@@ -1,0 +1,1169 @@
+From 145994315116325639c3c37c2ccef061b262deb0 Mon Sep 17 00:00:00 2001
+From: Martin Duhem <martin.duhem@gmail.com>
+Date: Mon, 26 Sep 2016 15:16:18 +0200
+Subject: [PATCH 10/13] Prototype of inline caching
+
+---
+ build.sbt                                          |  19 ++
+ nativelib/src/main/resources/CountingMap.cpp       |  51 ++++
+ nativelib/src/main/resources/CountingMap.hpp       |  22 ++
+ nativelib/src/main/resources/gc.c                  |   1 +
+ nativelib/src/main/resources/gc.h                  |  14 +
+ nativelib/src/main/resources/inlinecaching.cpp     |  70 +++++
+ nativelib/src/main/resources/profileinsts.cpp      |  45 +++
+ .../scala/scalanative/nscplugin/NirCodeGen.scala   |   1 +
+ project/build.sbt                                  |   5 +
+ .../scalanative/sbtplugin/ScalaNativePlugin.scala  |  10 +
+ .../sbtplugin/ScalaNativePluginInternal.scala      |   9 +
+ .../scala/scala/scalanative/optimizer/Driver.scala |   3 +
+ .../optimizer/analysis/ClassHierarchy.scala        |  12 +
+ .../optimizer/analysis/DispatchInfoParser.scala    |  41 +++
+ .../scalanative/optimizer/pass/InlineCaching.scala | 313 +++++++++++++++++++++
+ .../scalanative/optimizer/pass/LogInsts.scala      |  99 +++++++
+ .../scalanative/optimizer/pass/MainInjection.scala |  57 +++-
+ .../optimizer/pass/MethodCallProfiling.scala       |  67 +++++
+ .../scala/scala/scalanative/tools/Config.scala     |  39 ++-
+ 19 files changed, 864 insertions(+), 14 deletions(-)
+ create mode 100644 nativelib/src/main/resources/CountingMap.cpp
+ create mode 100644 nativelib/src/main/resources/CountingMap.hpp
+ create mode 100644 nativelib/src/main/resources/gc.h
+ create mode 100644 nativelib/src/main/resources/inlinecaching.cpp
+ create mode 100644 nativelib/src/main/resources/profileinsts.cpp
+ create mode 100644 tools/src/main/scala/scala/scalanative/optimizer/analysis/DispatchInfoParser.scala
+ create mode 100644 tools/src/main/scala/scala/scalanative/optimizer/pass/InlineCaching.scala
+ create mode 100644 tools/src/main/scala/scala/scalanative/optimizer/pass/LogInsts.scala
+ create mode 100644 tools/src/main/scala/scala/scalanative/optimizer/pass/MethodCallProfiling.scala
+
+diff --git a/build.sbt b/build.sbt
+index b8baa37..a6c1d05 100644
+--- a/build.sbt
++++ b/build.sbt
+@@ -141,6 +141,12 @@ lazy val tools =
+           "org.scalamacros" % "paradise" % "2.0.1" cross CrossVersion.full),
+         "org.scalatest" %% "scalatest" % "3.0.0" % "test"
+       ),
++      libraryDependencies ++= {
++        if (scalaVersion.value startsWith "2.11")
++          Seq("org.scala-lang.modules" %% "scala-parser-combinators" % "1.0.4")
++        else
++          Seq()
++      },
+       publishLocal := publishLocal
+         .dependsOn(publishLocal in nir)
+         .dependsOn(publishLocal in util)
+@@ -365,3 +371,16 @@ lazy val benchmarks =
+       }.taskValue
+     )
+     .enablePlugins(ScalaNativePlugin)
++
++commands += Command.command("bench") { state =>
++  "set nativeProfileDispatch in benchmarks := false" ::
++    "set nativeProfileInfo in benchmarks := None" ::
++      "benchmarks/run" ::
++          "set nativeProfileDispatch in benchmarks := true" ::
++            """set nativeProfileInfo in benchmarks := Some(file("/Users/martin/Desktop/bench-dump/dispatch.txt"))""" ::
++              "benchmarks/run" ::
++                "set nativeProfileDispatch in benchmarks := false" ::
++                  "benchmarks/run" ::
++                    state
++
++}
+diff --git a/nativelib/src/main/resources/CountingMap.cpp b/nativelib/src/main/resources/CountingMap.cpp
+new file mode 100644
+index 0000000..9a19653
+--- /dev/null
++++ b/nativelib/src/main/resources/CountingMap.cpp
+@@ -0,0 +1,51 @@
++#include <map>
++#include <stdio.h>
++#include <string>
++#include "CountingMap.hpp"
++
++using namespace std;
++
++bool CountingMap::contains(string key) {
++    return this->backing.find(key) != this->backing.end();
++}
++
++bool CountingMap::contains_pair(string key, int value) {
++    if (this->contains(key)) {
++        std::map<int, unsigned long> values = this->backing[key];
++        return values.find(value) != values.end();
++    } else {
++        return false;
++    }
++}
++
++void CountingMap::insert_occ(string key, int value) {
++    if (!this->contains(key)) {
++        this->backing[key] = *new map<int, unsigned long>();
++    }
++
++    if (!this->contains_pair(key, value)) {
++        this->backing[key][value] = 0L;
++    }
++
++    this->backing[key][value] += 1L;
++}
++
++unsigned long CountingMap::occurrences(string key, int value) {
++    if (this->contains_pair(key, value)) {
++        return this->backing[key][value];
++    } else {
++        return 0L;
++    }
++}
++
++void CountingMap::print(FILE* out) {
++    typedef map<string, map<int, unsigned long> >::iterator outer_it;
++    typedef map<int, unsigned long>::iterator inner_it;
++
++    for (outer_it m = this->backing.begin(); m != this->backing.end(); ++m) {
++        fprintf(out, "= %s:\n", m->first.c_str());
++        for (inner_it n = m->second.begin(); n != m->second.end(); ++n) {
++            fprintf(out, "\t%d (%lu)\n", n->first, n->second);
++        }
++    }
++}
+diff --git a/nativelib/src/main/resources/CountingMap.hpp b/nativelib/src/main/resources/CountingMap.hpp
+new file mode 100644
+index 0000000..00d9e6a
+--- /dev/null
++++ b/nativelib/src/main/resources/CountingMap.hpp
+@@ -0,0 +1,22 @@
++#ifndef CountingMap_hpp
++#define CountingMap_hpp
++
++#include <map>
++#include <stdio.h>
++#include <string>
++
++using namespace std;
++
++class CountingMap {
++private:
++    map<string, map<int, unsigned long> > backing;
++
++public:
++    void insert_occ(string key, int value);
++    bool contains(string key);
++    bool contains_pair(string key, int value);
++    unsigned long occurrences(string key, int value);
++    void print(FILE* out);
++};
++
++#endif /* CountingMap_hpp */
+diff --git a/nativelib/src/main/resources/gc.c b/nativelib/src/main/resources/gc.c
+index 5a4328b..e4d29db 100644
+--- a/nativelib/src/main/resources/gc.c
++++ b/nativelib/src/main/resources/gc.c
+@@ -1,4 +1,5 @@
+ #include <gc.h>
++#include "gc.h"
+ 
+ // At the moment we rely on the conservative
+ // mode of Boehm GC as our garbage collector.
+diff --git a/nativelib/src/main/resources/gc.h b/nativelib/src/main/resources/gc.h
+new file mode 100644
+index 0000000..899f315
+--- /dev/null
++++ b/nativelib/src/main/resources/gc.h
+@@ -0,0 +1,14 @@
++#ifndef gc_h
++#define gc_h
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++void* scalanative_alloc(void* info, size_t size);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif
+\ No newline at end of file
+diff --git a/nativelib/src/main/resources/inlinecaching.cpp b/nativelib/src/main/resources/inlinecaching.cpp
+new file mode 100644
+index 0000000..8d85f09
+--- /dev/null
++++ b/nativelib/src/main/resources/inlinecaching.cpp
+@@ -0,0 +1,70 @@
++#include <stdlib.h>
++#include <stdio.h>
++#include <string>
++#include "CountingMap.hpp"
++#include "gc.h"
++
++typedef struct tpe
++{
++    int id;
++    void* name;
++} tpe;
++
++typedef struct chararray
++{
++    tpe* u;
++    int length;
++    int unused;
++    short chars[];
++} chararray;
++
++typedef struct jstring
++{
++    tpe* u;
++    int cachedHashCode;
++    int count;
++    int offset;
++    chararray* value;
++} jstring;
++
++char* to_string(jstring* str) {
++    size_t length = str->count;
++    char* cs = (char*) scalanative_alloc(NULL, (length + 1) * sizeof(char));
++
++    for (int i = 0; i < length; ++i) {
++        cs[i] = (char) str->value->chars[i];
++    }
++    cs[length] = '\0';
++
++    return cs;
++}
++
++CountingMap method_calls;
++
++void method_call_dump(FILE* out) {
++    method_calls.print(out);
++}
++
++extern "C" {
++
++    void method_call_log(int callee_t, jstring* method_name) {
++        string m(to_string(method_name));
++        method_calls.insert_occ(m, callee_t);
++    }
++
++    void method_call_dump_file(jstring* file_name) {
++        FILE* file = fopen(to_string(file_name), "w");
++        if (file == NULL) {
++            fprintf(stderr, "Couldn't open file %s for writing.\n", to_string(file_name));
++            exit(1);
++        }
++        method_call_dump(file);
++
++        fclose(file);
++    }
++
++    void method_call_dump_console() {
++        method_call_dump(stdout);
++    }
++
++}
+\ No newline at end of file
+diff --git a/nativelib/src/main/resources/profileinsts.cpp b/nativelib/src/main/resources/profileinsts.cpp
+new file mode 100644
+index 0000000..be3c543
+--- /dev/null
++++ b/nativelib/src/main/resources/profileinsts.cpp
+@@ -0,0 +1,45 @@
++#include <stdlib.h>
++#include <stdio.h>
++#include <string>
++#include "CountingMap.hpp"
++#include "gc.h"
++
++CountingMap insts;
++
++extern "C" {
++	void log_call() {
++		insts.insert_occ("call", 1);
++	}
++
++	void log_load() {
++		insts.insert_occ("load", 1);
++	}
++
++	void log_store() {
++		insts.insert_occ("store", 1);
++	}
++
++	void log_elem() {
++		insts.insert_occ("elem", 1);
++	}
++
++	void log_extract() {
++		insts.insert_occ("extract", 1);
++	}
++
++	void log_insert() {
++		insts.insert_occ("insert", 1);
++	}
++
++	void log_stackalloc() {
++		insts.insert_occ("stackalloc", 1);
++	}
++
++	void log_select() {
++		insts.insert_occ("select", 1);
++	}
++
++	void profile_insts_dump() {
++		insts.print(stdout);
++	}
++}
+diff --git a/nscplugin/src/main/scala/scala/scalanative/nscplugin/NirCodeGen.scala b/nscplugin/src/main/scala/scala/scalanative/nscplugin/NirCodeGen.scala
+index 1df729c..74d172f 100644
+--- a/nscplugin/src/main/scala/scala/scalanative/nscplugin/NirCodeGen.scala
++++ b/nscplugin/src/main/scala/scala/scalanative/nscplugin/NirCodeGen.scala
+@@ -1723,6 +1723,7 @@ abstract class NirCodeGen
+                       self: Val,
+                       argsp: Seq[Tree],
+                       focus: Focus): Focus = {
++
+       val owner        = sym.owner
+       val name         = genMethodName(sym)
+       val sig          = genMethodSig(sym)
+diff --git a/project/build.sbt b/project/build.sbt
+index 88863b2..337af67 100644
+--- a/project/build.sbt
++++ b/project/build.sbt
+@@ -28,3 +28,8 @@ scalacOptions ++= Seq(
+   "-encoding",
+   "utf8"
+ )
++
++libraryDependencies += "com.lihaoyi" %% "fastparse" % "0.4.1"
++
++libraryDependencies += compilerPlugin(
++  "org.scalamacros" % "paradise" % "2.0.1" cross CrossVersion.full)
+diff --git a/sbt-scala-native/src/main/scala/scala/scalanative/sbtplugin/ScalaNativePlugin.scala b/sbt-scala-native/src/main/scala/scala/scalanative/sbtplugin/ScalaNativePlugin.scala
+index a7f62c1..ffb5779 100644
+--- a/sbt-scala-native/src/main/scala/scala/scalanative/sbtplugin/ScalaNativePlugin.scala
++++ b/sbt-scala-native/src/main/scala/scala/scalanative/sbtplugin/ScalaNativePlugin.scala
+@@ -32,6 +32,16 @@ object ScalaNativePlugin extends AutoPlugin {
+ 
+     val nativeSharedLibrary = settingKey[Boolean](
+       "Will create a shared library instead of a program with a main method.")
++
++    val nativeProfileDispatch = settingKey[Boolean](
++      "Gather information about types encountered in method dispatch at runtime.")
++
++    val nativeProfileInfo = settingKey[Option[File]](
++      "Where to store or find the profiling information.")
++
++    val nativeInlineCachingMaxCandidates = settingKey[Int](
++      "Maximum number of types observed at runtime to consider a call site " +
++        "for inline caching.")
+   }
+ 
+   override def projectSettings: Seq[Setting[_]] = (
+diff --git a/sbt-scala-native/src/main/scala/scala/scalanative/sbtplugin/ScalaNativePluginInternal.scala b/sbt-scala-native/src/main/scala/scala/scalanative/sbtplugin/ScalaNativePluginInternal.scala
+index 3f2b568..bd0f2e1 100644
+--- a/sbt-scala-native/src/main/scala/scala/scalanative/sbtplugin/ScalaNativePluginInternal.scala
++++ b/sbt-scala-native/src/main/scala/scala/scalanative/sbtplugin/ScalaNativePluginInternal.scala
+@@ -219,6 +219,9 @@ object ScalaNativePluginInternal {
+       "org.scala-native" % "nscplugin" % nativeVersion cross CrossVersion.full),
+     nativeLibraryLinkage := Map(),
+     nativeSharedLibrary := false,
++    nativeProfileDispatch := false,
++    nativeProfileInfo := None,
++    nativeInlineCachingMaxCandidates := 2,
+     nativeClang := {
+       discover("clang", Seq(("3", "8"), ("3", "7")))
+     },
+@@ -258,6 +261,9 @@ object ScalaNativePluginInternal {
+       val linkerReporter    = nativeLinkerReporter.value
+       val optimizerReporter = nativeOptimizerReporter.value
+       val sharedLibrary     = nativeSharedLibrary.value
++      val profile           = nativeProfileDispatch.value
++      val profileInfo       = nativeProfileInfo.value
++      val maxCandidates     = nativeInlineCachingMaxCandidates.value
+       val logger            = streams.value.log
+ 
+       val config = tools.Config.empty
+@@ -266,6 +272,9 @@ object ScalaNativePluginInternal {
+           tools.LinkerPath(VirtualDirectory.real(p))))
+         .withTargetDirectory(VirtualDirectory.real(target))
+         .withInjectMain(!nativeSharedLibrary.value)
++        .withProfileDispatch(profile)
++        .withProfileDispatchInfo(profileInfo)
++        .withInlineCachingMaxCandidates(maxCandidates)
+ 
+       val nirFiles   = (Keys.target.value ** "*.nir").get.toSet
+       val configFile = (streams.value.cacheDirectory / "native-config")
+diff --git a/tools/src/main/scala/scala/scalanative/optimizer/Driver.scala b/tools/src/main/scala/scala/scalanative/optimizer/Driver.scala
+index accedc7..793b28c 100644
+--- a/tools/src/main/scala/scala/scalanative/optimizer/Driver.scala
++++ b/tools/src/main/scala/scala/scalanative/optimizer/Driver.scala
+@@ -23,6 +23,7 @@ object Driver {
+     new Impl(
+       Seq(pass.GlobalBoxingElimination,
+           pass.DeadCodeElimination,
++          pass.InlineCaching,
+           pass.GlobalValueNumbering,
+           pass.MainInjection,
+           pass.ExternHoisting,
+@@ -30,6 +31,7 @@ object Driver {
+           pass.RuntimeTypeInfoInjection,
+           pass.AsLowering,
+           pass.IsLowering,
++          pass.MethodCallProfiling,
+           pass.MethodLowering,
+           pass.TraitLowering,
+           pass.ClassLowering,
+@@ -42,6 +44,7 @@ object Driver {
+           pass.AllocLowering,
+           pass.SizeofLowering,
+           pass.CopyPropagation,
++          pass.LogInsts,
+           pass.DeadCodeElimination))
+ 
+   /** Create an empty pass-lesss driver. */
+diff --git a/tools/src/main/scala/scala/scalanative/optimizer/analysis/ClassHierarchy.scala b/tools/src/main/scala/scala/scalanative/optimizer/analysis/ClassHierarchy.scala
+index b067552..b726f70 100644
+--- a/tools/src/main/scala/scala/scalanative/optimizer/analysis/ClassHierarchy.scala
++++ b/tools/src/main/scala/scala/scalanative/optimizer/analysis/ClassHierarchy.scala
+@@ -243,6 +243,18 @@ object ClassHierarchy {
+ 
+       (table.ty, Defn.Const(Attrs.None, instanceName, table.ty, table))
+     }
++
++    def classWithName(name: Global): Option[Class] =
++      classes find (_.name == name)
++
++    def classWithId(id: Int): Option[Class] =
++      classes find (_.id == id)
++
++    def traitWithName(name: Global): Option[Trait] =
++      traits find (_.name == name)
++
++    def traitWithId(id: Int): Option[Trait] =
++      traits find (_.id == id)
+   }
+ 
+   def apply(defns: Seq[Defn]): Top = {
+diff --git a/tools/src/main/scala/scala/scalanative/optimizer/analysis/DispatchInfoParser.scala b/tools/src/main/scala/scala/scalanative/optimizer/analysis/DispatchInfoParser.scala
+new file mode 100644
+index 0000000..db01b64
+--- /dev/null
++++ b/tools/src/main/scala/scala/scalanative/optimizer/analysis/DispatchInfoParser.scala
+@@ -0,0 +1,41 @@
++package scala.scalanative
++package optimizer
++package analysis
++
++import fastparse.WhitespaceApi
++import fastparse.noApi._
++
++import nir.parser.{Global, Local}
++
++import util.sh
++import Shows._
++
++object DispatchInfoParser {
++
++  private val IgnoreWhitespace = WhitespaceApi.Wrapper {
++    import fastparse.all._
++    NoTrace(CharIn(Seq(' ', '\t', '\n')).rep)
++  }
++  import IgnoreWhitespace._
++
++  val number: P[Int] = P(CharIn('0' to '9').rep(1).!.map(_.toInt))
++
++  val dispatchHeader: P[String] =
++    P("=" ~ Global.parser.! ~ "->" ~ Local.parser.! ~ "->" ~ Global.parser.! ~ ":") map {
++      case (enclosing, inst, meth) => sh"$enclosing -> $inst -> $meth".toString
++    }
++
++  val dispatchMethod: P[(String, Seq[Int])] =
++    dispatchHeader ~ (number ~ "(" ~ number ~ ")").rep(1) map {
++      case (header, tpes) => (header, tpes.sortBy(_._2).map(_._1).reverse)
++    }
++
++  val dispatchInfo: P[Map[String, Seq[Int]]] =
++    dispatchMethod.rep ~ End map (_.toMap)
++
++  def apply(in: String): Map[String, Seq[Int]] =
++    dispatchInfo.parse(in) match {
++      case Parsed.Success(info, _) => info
++      case Parsed.Failure(_, _, _) => Map.empty
++    }
++}
+diff --git a/tools/src/main/scala/scala/scalanative/optimizer/pass/InlineCaching.scala b/tools/src/main/scala/scala/scalanative/optimizer/pass/InlineCaching.scala
+new file mode 100644
+index 0000000..6b04017
+--- /dev/null
++++ b/tools/src/main/scala/scala/scalanative/optimizer/pass/InlineCaching.scala
+@@ -0,0 +1,313 @@
++package scala.scalanative
++package optimizer
++package pass
++
++import scala.io.Source
++
++import analysis.ClassHierarchy._
++import analysis.ClassHierarchyExtractors._
++import analysis.ControlFlow, ControlFlow.Block
++import nir._, Inst.Let
++import util.sh, Shows._
++
++/**
++ * Inline caching based on information gathered at runtime.
++ * Transforms polymorphic call sites to a sequence of type tests and static
++ * dispatches. Falls back to virtual dispatch if all type tests fail.
++ */
++class InlineCaching(dispatchInfo: Map[String, Seq[Int]],
++                    maxCandidates: Int)(implicit fresh: Fresh, top: Top)
++    extends Pass {
++  import InlineCaching._
++
++  /**
++   * Finds the implementation of `meth` for an instance of `in`.
++   *
++   * @param meth The method we're looking for inside scope `in`.
++   * @param in   The scope containing the method we're looking for.
++   * @return The `Global` representing the concrete implementation of `meth`
++   *         that should be used for `in`.
++   */
++   private def findImpl(meth: Method, clss: Class): Option[Global] = {
++    lazy val allMethods =
++      clss.allmethods.filter(m => m.isConcrete && m.name.id == meth.name.id)
++
++    // Is the method directly defined in the class we're interested in?
++    lazy val direct =
++      if (meth.in == clss) Some(clss.name member meth.name.id) else None
++
++    // Is there a matching method in the class we're interested in?
++    lazy val inClass = allMethods find (_.in == clss) map (_.name)
++
++    // Did we find a single match in all the methods?
++    lazy val single = allMethods match {
++      case Seq(m) =>
++        m.in match {
++          case c: Class if c.isModule =>
++            val className = c.name.id.drop("module.".length)
++            Some(Global.Top(className) member m.name.id)
++          case other =>
++            Some(other.name member m.name.id)
++        }
++      case _ => None
++    }
++
++    // Lookup using the vtable
++    lazy val vtable = {
++      clss.vtable lift meth.vindex flatMap {
++        case v: Val.Global => Some(v.name)
++        case _             => None
++      }
++    }
++
++    direct orElse inClass orElse single orElse vtable
++  }
++
++  /**
++   * Split the block `block` at the first sequence of instructions for which
++   * `test` is true.
++   * The instructions are grouped using `select` and then each group is given to
++   * `test`.
++   *
++   * @param test      The test to select where to split the block.
++   * @param select    How to group all the instructions in the block (eg. use a
++   *                  sliding window of length 2)
++   * @param makeParam A function that generates parameters for the block coming
++   *                  after the split from the instructions where we split.
++   * @param block     The block to split.
++   */
++  private def splitAt[T <: Inst](test: Seq[Inst] => Boolean)(
++      select: Seq[Inst] => Seq[Seq[Inst]])(
++      makeParams: Seq[T] => Seq[Val.Local])(
++      block: Block): Option[(Block, Seq[Inst], Block)] = {
++    val slices = select(block.insts)
++    slices span (!test(_)) match {
++      case (_, Seq()) =>
++        None
++      case (before, (insts: Seq[T]) +: after) =>
++        val merge = fresh()
++        val b0    = block.copy(insts = before.map(_.head))
++        val b1 =
++          Block(merge,
++                makeParams(insts),
++                after.tail.map(_.head) ++ after.last.tail)
++
++        Some((b0, insts, b1))
++    }
++  }
++
++  /**
++   * Connect the sequence of blocks `blocks` up to `last`.
++   *
++   * @param blocks The blocks to connect, in this order
++   * @param last   The last block in the chain.
++   * @return A sequence of blocks such that they are all connected using the
++   *         next block's name.
++   */
++  private def linkBlocks(blocks: Seq[Local => Block])(
++      last: Block): Seq[Block] =
++    (blocks foldRight List(last)) {
++      case (blk, acc) => blk(acc.head.name) :: acc
++    }
++
++  /**
++   * Determines if `insts` is a virtual dispatch.
++   *
++   * @param inst The instructions to tests
++   * @return true if `inst` is a virtual dispatch, false otherwise.
++   */
++  private def isVirtualDispatch(insts: Seq[Inst]): Boolean = insts match {
++    case Seq(Let(n, Op.Method(_, MethodRef(_: Class, meth))),
++             Let(_, Op.Call(_, Val.Local(ptr, _), _)))
++        if meth.isVirtual && ptr == n =>
++      true
++    case _ =>
++      false
++  }
++
++  /**
++   * Creates a single val from the last instruction in `lets`. Useful to create
++   * the parameters of a new block when splitting blocks.
++   *
++   * @param lets The instructions whose value we want to pass
++   * @return A single `Val.Local` whose name and type are the same as the last
++   *         instruction in `lets`.
++   */
++  private def reuseLast(lets: Seq[Let]): Seq[Val.Local] =
++    Seq(Val.Local(lets.last.name, lets.last.op.resty))
++
++  /**
++   * Convert a block to the corresponding sequence of instruction
++   *
++   * @param block The block to convert
++   * @return The sequence of instruction that corresponds to the same implicit
++   *         block.
++   */
++  private def blockToInsts(block: Block): Seq[Inst] =
++    block.label +: block.insts
++
++  /**
++   * Generates the block that retrieves statically the address of the
++   * implementation of `meth` for an instance of `clss`.
++   *
++   * @param meth The method to retrieve
++   * @param call The original method call
++   * @param clss The class for which we're looking for an implementation
++   * @return A function that accepts a `Local` representing the name of the
++   *         block to jump to after retrieving the address of the method.
++   *         The destination block must accept one parameter of type `Ptr`,
++   *         which is the address of the method.
++   */
++  private def makeStaticBlock(meth: Method,
++                              call: Op.Call,
++                              clss: Class): Local => Block =
++    next => {
++      val blockName = fresh()
++      val impl      = findImpl(meth, clss) getOrElse ???
++      val result    = fresh()
++
++      Block(
++        blockName,
++        Nil,
++        Seq(
++          Let(result, call.copy(ptr = Val.Global(impl, Type.Ptr))),
++          Inst.Jump(Next.Label(next, Seq(Val.Local(result, call.resty))))
++        )
++      )
++    }
++
++  /**
++   * Generates a type comparison.
++   *
++   * @param actualType         The type that we're observing at runtime
++   * @param desiredType        The type we compare against.
++   * @param correspondingBlock The block to jump to if the two types are equal.
++   * @return A function that accepts a `Local` representing the name of the
++   *         block to jump to if the two types are different.
++   */
++  private def makeTypeComparison(actualType: Val,
++                                 desiredType: Val,
++                                 correspondingBlock: Local): Local => Block = {
++    val comparison = Val.Local(fresh(), Type.Bool)
++
++    (els: Local) =>
++      Block(
++        name = fresh(),
++        params = Nil,
++        insts = Seq(
++          Let(comparison.name,
++              Op.Comp(Comp.Ieq, Type.Ptr, actualType, desiredType)),
++          Inst.If(comparison, Next(correspondingBlock), Next(els))
++        )
++      )
++  }
++
++  /**
++   * Adds inline caching to virtual calls in `block`.
++   *
++   * @param block The block on which to add inline caching.
++   * @return A block that is semantically equivalent to `block`
++   */
++  private def addInlineCaching(enclosingDefn: Global)(block: Block): Seq[Block] =
++    splitAt(isVirtualDispatch)(_.sliding(2).toSeq)(reuseLast)(block) match {
++      case Some(
++          (init,
++           Seq(inst @ Let(n, Op.Method(obj, MethodRef(cls: Class, meth))),
++               Let(_, call @ Op.Call(resty, ptr, args))),
++           merge)) =>
++        val reuse: Seq[Let] => Seq[Val.Local] = lets =>
++          Seq(Val.Local(lets.last.name, lets.last.op.resty))
++
++        val key = {
++          val enclosing = sh"$enclosingDefn".toString
++          val instName  = sh"$n".toString
++          val methName  = sh"${meth.name}".toString
++          s"$enclosing -> $instName -> $methName"
++        }
++
++        dispatchInfo getOrElse (key, Seq()) flatMap (top classWithId _) match {
++          case allCandidates if allCandidates.nonEmpty =>
++            // We don't inline calls to all candidates, only the most frequent for
++            // performance.
++            val candidates = allCandidates take maxCandidates
++
++            val typeptr = Val.Local(fresh(), Type.Ptr)
++            // Instructions to load the type id of `obj` at runtime.
++            // The result is in `typeid`.
++            val loadTypePtr: Seq[Let] = Seq(
++              Let(typeptr.name, Op.Load(Type.Ptr, obj))
++            )
++
++            // The blocks that give the address for an inlined call
++            val staticBlocks: Seq[Block] =
++              candidates map (makeStaticBlock(meth, call, _)(merge.name))
++
++            // The type comparisons. The argument is the block to go to if the
++            // type test fails.
++            val typeComparisons: Seq[Local => Block] =
++              staticBlocks zip candidates map {
++                case (block, clss) =>
++                  makeTypeComparison(typeptr, clss.typeConst, block.name)
++              }
++
++            // If all type tests fail, we fallback to virtual dispatch.
++            val fallback: Block = {
++              val methptrptr = Val.Local(fresh(), Type.Ptr)
++              val methptr    = Val.Local(fresh(), Type.Ptr)
++              val newCall    = Let(call.copy(ptr = methptr))
++
++              Block(fresh(),
++                    Nil,
++                    Seq(
++                      Let(methptrptr.name,
++                          Op.Elem(cls.typeStruct,
++                                  typeptr,
++                                  Seq(Val.I32(0),
++                                      Val.I32(2), // index of vtable in type struct
++                                      Val.I32(meth.vindex)))),
++                      Let(methptr.name, Op.Load(Type.Ptr, methptrptr)),
++                      newCall,
++                      Inst.Jump(
++                        Next.Label(merge.name,
++                                   Seq(Val.Local(newCall.name, call.resty))))
++                    ))
++            }
++
++            // Execute start, load the typeid and jump to the first type test.
++            val start: Local => Block = typeComp =>
++              init.copy(
++                insts = init.insts ++ loadTypePtr :+ Inst.Jump(Next(typeComp)))
++
++            linkBlocks(start +: typeComparisons)(fallback) ++
++              staticBlocks ++
++              addInlineCaching(enclosingDefn)(merge)
++
++          case _ =>
++            Seq(block)
++        }
++      case _ =>
++        Seq(block)
++    }
++
++  override def preDefn = {
++    case define: Defn.Define =>
++      val graph          = ControlFlow.Graph(define.insts)
++      val newBlocks      = graph.all.flatMap(addInlineCaching(define.name))
++      Seq(define.copy(insts = newBlocks flatMap blockToInsts))
++  }
++
++}
++
++object InlineCaching extends PassCompanion {
++  override def apply(config: tools.Config, top: Top) =
++    config.profileDispatchInfo match {
++      case Some(info) if info.exists =>
++        val maxCandidates = config.inlineCachingMaxCandidates
++        val dispatchInfo =
++          analysis.DispatchInfoParser(Source.fromFile(info).mkString)
++        new InlineCaching(dispatchInfo, maxCandidates)(top.fresh, top)
++
++      case _ =>
++        EmptyPass
++    }
++}
+diff --git a/tools/src/main/scala/scala/scalanative/optimizer/pass/LogInsts.scala b/tools/src/main/scala/scala/scalanative/optimizer/pass/LogInsts.scala
+new file mode 100644
+index 0000000..062eeff
+--- /dev/null
++++ b/tools/src/main/scala/scala/scalanative/optimizer/pass/LogInsts.scala
+@@ -0,0 +1,99 @@
++package scala.scalanative
++package optimizer
++package pass
++
++import analysis.ClassHierarchy.Top
++import tools.Config
++import nir._
++import Inst._
++import Op._
++
++class LogInsts(implicit fresh: Fresh) extends Pass {
++  import LogInsts._
++
++  private def call(ty: Type, v: Val.Global): Inst.Let =
++    Let(Op.Call(ty, v, Seq()))
++  override def preInst = {
++    case inst: Inst.Let =>
++      inst.op match {
++        case c: Call =>
++          Seq(call(log_callSig, log_call), inst)
++
++        case l: Load =>
++          Seq(call(log_loadSig, log_load), inst)
++
++        case s: Store =>
++          Seq(call(log_storeSig, log_store), inst)
++
++        case e: Elem =>
++          Seq(call(log_elemSig, log_elem), inst)
++
++        case e: Extract =>
++          Seq(call(log_extractSig, log_extract), inst)
++
++        case i: Insert =>
++          Seq(call(log_insertSig, log_insert), inst)
++
++        case s: Stackalloc =>
++          Seq(call(log_stackallocSig, log_stackalloc), inst)
++
++        case s: Select =>
++          Seq(call(log_selectSig, log_select), inst)
++
++        case _ =>
++          Seq(inst)
++      }
++    case other =>
++      Seq(other)
++  }
++}
++
++object LogInsts extends PassCompanion {
++
++  val log_callSig  = Type.Function(Seq(), Type.Void)
++  val log_call     = Val.Global(Global.Top("log_call"), Type.Ptr)
++  val log_callDecl = Defn.Declare(Attrs.None, log_call.name, log_callSig)
++
++  val log_loadSig  = Type.Function(Seq(), Type.Void)
++  val log_load     = Val.Global(Global.Top("log_load"), Type.Ptr)
++  val log_loadDecl = Defn.Declare(Attrs.None, log_load.name, log_loadSig)
++
++  val log_storeSig  = Type.Function(Seq(), Type.Void)
++  val log_store     = Val.Global(Global.Top("log_store"), Type.Ptr)
++  val log_storeDecl = Defn.Declare(Attrs.None, log_store.name, log_storeSig)
++
++  val log_elemSig  = Type.Function(Seq(), Type.Void)
++  val log_elem     = Val.Global(Global.Top("log_elem"), Type.Ptr)
++  val log_elemDecl = Defn.Declare(Attrs.None, log_elem.name, log_elemSig)
++
++  val log_extractSig = Type.Function(Seq(), Type.Void)
++  val log_extract    = Val.Global(Global.Top("log_extract"), Type.Ptr)
++  val log_extractDecl =
++    Defn.Declare(Attrs.None, log_extract.name, log_extractSig)
++
++  val log_insertSig  = Type.Function(Seq(), Type.Void)
++  val log_insert     = Val.Global(Global.Top("log_insert"), Type.Ptr)
++  val log_insertDecl = Defn.Declare(Attrs.None, log_insert.name, log_insertSig)
++
++  val log_stackallocSig = Type.Function(Seq(), Type.Void)
++  val log_stackalloc    = Val.Global(Global.Top("log_stackalloc"), Type.Ptr)
++  val log_stackallocDecl =
++    Defn.Declare(Attrs.None, log_stackalloc.name, log_stackallocSig)
++
++  val log_selectSig  = Type.Function(Seq(), Type.Void)
++  val log_select     = Val.Global(Global.Top("log_select"), Type.Ptr)
++  val log_selectDecl = Defn.Declare(Attrs.None, log_select.name, log_selectSig)
++
++  override def injects: Seq[Defn] =
++    Seq(log_callDecl,
++        log_loadDecl,
++        log_storeDecl,
++        log_elemDecl,
++        log_extractDecl,
++        log_insertDecl,
++        log_stackallocDecl,
++        log_selectDecl)
++
++  override def apply(config: Config, top: Top): Pass =
++    new LogInsts()(top.fresh)
++}
+diff --git a/tools/src/main/scala/scala/scalanative/optimizer/pass/MainInjection.scala b/tools/src/main/scala/scala/scalanative/optimizer/pass/MainInjection.scala
+index c114b58..f989be5 100644
+--- a/tools/src/main/scala/scala/scalanative/optimizer/pass/MainInjection.scala
++++ b/tools/src/main/scala/scala/scalanative/optimizer/pass/MainInjection.scala
+@@ -2,13 +2,15 @@ package scala.scalanative
+ package optimizer
+ package pass
+ 
++import tools.Config
+ import analysis.ClassHierarchy.Top
+ import nir._
+ 
+ /** Introduces `main` function that sets up
+  *  the runtime and calls the given entry point.
+  */
+-class MainInjection(entry: Global)(implicit fresh: Fresh) extends Pass {
++class MainInjection(entry: Global, config: Config)(implicit fresh: Fresh)
++    extends Pass {
+   import MainInjection._
+ 
+   override def preAssembly = {
+@@ -26,18 +28,32 @@ class MainInjection(entry: Global)(implicit fresh: Fresh) extends Pass {
+       val rt     = Val.Local(fresh(), Rt)
+       val arr    = Val.Local(fresh(), ObjectArray)
+ 
++      val dumpProfilingInsts: Seq[Inst] =
++        if (config.profileDispatch)
++          config.profileDispatchInfo match {
++            case Some(file) =>
++              Seq(
++                Inst.Let(
++                  Op.Call(DumpLogFileSig,
++                          DumpLogFile,
++                          Seq(Val.String(file.getAbsolutePath)))))
++            case None =>
++              Seq(Inst.Let(Op.Call(DumpLogConsoleSig, DumpLogConsole, Seq())))
++          } else Seq()
++
+       defns :+ Defn.Define(
+         Attrs.None,
+         MainName,
+         MainSig,
+-        Seq(
+-          Inst.Label(fresh(), Seq(argc, argv)),
+-          Inst.Let(Op.Call(InitSig, Init, Seq())),
+-          Inst.Let(rt.name, Op.Module(Rt.name)),
+-          Inst.Let(arr.name, Op.Call(RtInitSig, RtInit, Seq(rt, argc, argv))),
+-          Inst.Let(module.name, Op.Module(entry.top)),
+-          Inst.Let(Op.Call(entryMainTy, entryMain, Seq(module, arr))),
+-          Inst.Ret(Val.I32(0))))
++        Seq(Inst.Label(fresh(), Seq(argc, argv)),
++            Inst.Let(Op.Call(InitSig, Init, Seq())),
++            Inst.Let(rt.name, Op.Module(Rt.name)),
++            Inst.Let(arr.name, Op.Call(RtInitSig, RtInit, Seq(rt, argc, argv))),
++            Inst.Let(module.name, Op.Module(entry.top)),
++            Inst.Let(Op.Call(entryMainTy, entryMain, Seq(module, arr)))) ++
++          dumpProfilingInsts ++
++          Seq(Inst.Let(Op.Call(DumpInstsConsoleSig, DumpInstsConsole, Seq()))) ++
++          Seq(Inst.Ret(Val.I32(0))))
+   }
+ }
+ 
+@@ -59,13 +75,30 @@ object MainInjection extends PassCompanion {
+   val Init     = Val.Global(Global.Top("scalanative_init"), Type.Ptr)
+   val InitDecl = Defn.Declare(Attrs.None, Init.name, InitSig)
+ 
++  val DumpLogFileSig = Type.Function(Seq(Arg(nir.Rt.String)), Type.Void)
++  val DumpLogFile    = Val.Global(Global.Top("method_call_dump_file"), Type.Ptr)
++  val DumpLogFileDecl =
++    Defn.Declare(Attrs.None, DumpLogFile.name, DumpLogFileSig)
++
++  val DumpLogConsoleSig = Type.Function(Seq(), Type.Void)
++  val DumpLogConsole =
++    Val.Global(Global.Top("method_call_dump_console"), Type.Ptr)
++  val DumpLogConsoleDecl =
++    Defn.Declare(Attrs.None, DumpLogConsole.name, DumpLogConsoleSig)
++
++  val DumpInstsConsoleSig = Type.Function(Seq(), Type.Void)
++  val DumpInstsConsole =
++    Val.Global(Global.Top("profile_insts_dump"), Type.Ptr)
++  val DumpInstsConsoleDecl =
++    Defn.Declare(Attrs.None, DumpInstsConsole.name, DumpInstsConsoleSig)
++
+   override val depends =
+     Seq(ObjectArray.name, Rt.name, RtInit.name)
+ 
+   override val injects =
+-    Seq(InitDecl)
++    Seq(InitDecl, DumpLogFileDecl, DumpLogConsoleDecl, DumpInstsConsoleDecl)
+ 
+-  override def apply(config: tools.Config, top: Top) =
+-    if (config.injectMain) new MainInjection(config.entry)(top.fresh)
++  override def apply(config: Config, top: Top) =
++    if (config.injectMain) new MainInjection(config.entry, config)(top.fresh)
+     else EmptyPass
+ }
+diff --git a/tools/src/main/scala/scala/scalanative/optimizer/pass/MethodCallProfiling.scala b/tools/src/main/scala/scala/scalanative/optimizer/pass/MethodCallProfiling.scala
+new file mode 100644
+index 0000000..cce4e44
+--- /dev/null
++++ b/tools/src/main/scala/scala/scalanative/optimizer/pass/MethodCallProfiling.scala
+@@ -0,0 +1,67 @@
++package scala.scalanative
++package optimizer
++package pass
++
++import analysis.ClassHierarchy._
++import analysis.ClassHierarchyExtractors._
++import util.{sh, unsupported}
++import nir._, Shows._, Inst.Let
++
++class MethodCallProfiling(implicit top: Top, fresh: Fresh) extends Pass {
++  import MethodCallProfiling._
++
++  override def preDefn = {
++    case defn @ Defn.Define(_, name, _, insts) =>
++      val newInsts = insts.flatMap(addProfiling(name, _))
++      Seq(defn.copy(insts = newInsts))
++  }
++
++  private def addProfiling(enclosingDefn: Global, inst: Inst): Seq[Inst] =
++    inst match {
++      case inst @ Let(n, Op.Method(obj, MethodRef(cls: Class, meth)))
++          if meth.isVirtual =>
++        val typeptr   = Val.Local(fresh(), Type.Ptr)
++        val typeidptr = Val.Local(fresh(), Type.Ptr)
++        val typeid    = Val.Local(fresh(), Type.I32)
++
++        val key = {
++          val enclosing = sh"$enclosingDefn".toString
++          val instName  = sh"$n".toString
++          val methName  = sh"${meth.name}".toString
++          s"$enclosing -> $instName -> $methName"
++        }
++
++        Seq(
++          Let(typeptr.name, Op.Load(Type.Ptr, obj)),
++          Let(typeidptr.name,
++              Op.Elem(cls.typeStruct, typeptr, Seq(Val.I32(0), Val.I32(0)))),
++          Let(typeid.name, Op.Load(Type.I32, typeidptr)),
++          Let(
++            Op.Call(profileMethodSig,
++                    profileMethod,
++                    Seq(typeid, Val.String(key)))),
++          inst
++        )
++
++      case other =>
++        Seq(other)
++
++    }
++
++}
++
++object MethodCallProfiling extends PassCompanion {
++  override def apply(config: tools.Config, top: Top) =
++    if (config.profileDispatch)
++      new MethodCallProfiling()(top, top.fresh)
++    else
++      EmptyPass
++
++  val profileMethodName = Global.Top("method_call_log")
++  val profileMethodSig =
++    Type.Function(Seq(Arg(Type.I32), Arg(Rt.String)), Type.Void)
++  val profileMethod = Val.Global(profileMethodName, profileMethodSig)
++
++  override val injects = Seq(
++    Defn.Declare(Attrs.None, profileMethodName, profileMethodSig))
++}
+diff --git a/tools/src/main/scala/scala/scalanative/tools/Config.scala b/tools/src/main/scala/scala/scalanative/tools/Config.scala
+index 32417ed..daa3151 100644
+--- a/tools/src/main/scala/scala/scalanative/tools/Config.scala
++++ b/tools/src/main/scala/scala/scalanative/tools/Config.scala
+@@ -4,6 +4,8 @@ package tools
+ import scalanative.io.VirtualDirectory
+ import nir.Global
+ 
++import java.io.File
++
+ sealed trait Config {
+ 
+   /** Entry point for linking. */
+@@ -18,6 +20,15 @@ sealed trait Config {
+   /** Should a main method be injected? */
+   def injectMain: Boolean
+ 
++  /** Is virtual dispatch profiling enabled? */
++  def profileDispatch: Boolean
++
++  /** Where to put virtual dispatch info? */
++  def profileDispatchInfo: Option[File]
++
++  /** Maximum number of candidates to consider a call-site for inline caching */
++  def inlineCachingMaxCandidates: Int
++
+   /** Create new config with given entry point. */
+   def withEntry(value: Global): Config
+ 
+@@ -29,6 +40,15 @@ sealed trait Config {
+ 
+   /** Create a new config with given inject main flag. */
+   def withInjectMain(value: Boolean): Config
++
++  /** Create a new config with virtual dispatch profiling enabled or disabled */
++  def withProfileDispatch(value: Boolean): Config
++
++  /** Create a new config where dispatch info is stored to the specified file */
++  def withProfileDispatchInfo(value: Option[File]): Config
++
++  /** Create a new config with a max number of candidates for inline caching */
++  def withInlineCachingMaxCandidates(value: Int): Config
+ }
+ 
+ object Config {
+@@ -38,12 +58,18 @@ object Config {
+     Impl(entry = Global.None,
+          paths = Seq.empty,
+          targetDirectory = VirtualDirectory.empty,
+-         injectMain = true)
++         injectMain = true,
++         profileDispatch = false,
++         profileDispatchInfo = None,
++         inlineCachingMaxCandidates = 2)
+ 
+   private final case class Impl(entry: Global,
+                                 paths: Seq[LinkerPath],
+                                 targetDirectory: VirtualDirectory,
+-                                injectMain: Boolean)
++                                injectMain: Boolean,
++                                profileDispatch: Boolean,
++                                profileDispatchInfo: Option[File],
++                                inlineCachingMaxCandidates: Int)
+       extends Config {
+     def withEntry(value: Global): Config =
+       copy(entry = value)
+@@ -56,5 +82,14 @@ object Config {
+ 
+     def withInjectMain(value: Boolean): Config =
+       copy(injectMain = value)
++
++    def withProfileDispatch(value: Boolean): Config =
++      copy(profileDispatch = value)
++
++    def withProfileDispatchInfo(value: Option[File]): Config =
++      copy(profileDispatchInfo = value)
++
++    def withInlineCachingMaxCandidates(value: Int): Config =
++      copy(inlineCachingMaxCandidates = value)
+   }
+ }
+-- 
+2.9.3 (Apple Git-75)
+

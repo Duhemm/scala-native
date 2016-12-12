@@ -1,21 +1,18 @@
 #ifndef CountingMap_hpp
 #define CountingMap_hpp
 
-#include <map>
+#include <unordered_map>
 #include <stdio.h>
-#include <string>
 
 using namespace std;
 
 class CountingMap {
 private:
-    map<string, map<int, unsigned long> > backing;
+    unordered_map<int, unordered_map<int, unsigned long> > backing;
 
 public:
-    void insert_occ(string key, int value);
-    bool contains(string key);
-    bool contains_pair(string key, int value);
-    unsigned long occurrences(string key, int value);
+    void insert_occ(int key, int value);
+    unsigned long occurrences(int key, int value);
     void print(FILE* out);
 };
 

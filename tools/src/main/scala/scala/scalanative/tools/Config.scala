@@ -49,6 +49,10 @@ sealed trait Config {
 
   /** Create a new config with a max number of candidates for inline caching */
   def withInlineCachingMaxCandidates(value: Int): Config
+
+  def typeAssignments: Map[Int, Int]
+
+  def withTypeAssignments(value: Map[Int, Int]): Config
 }
 
 object Config {
@@ -61,7 +65,8 @@ object Config {
          injectMain = true,
          profileDispatch = false,
          profileDispatchInfo = None,
-         inlineCachingMaxCandidates = 2)
+         inlineCachingMaxCandidates = 2,
+         typeAssignments = Map.empty)
 
   private final case class Impl(entry: Global,
                                 paths: Seq[LinkerPath],
@@ -69,7 +74,8 @@ object Config {
                                 injectMain: Boolean,
                                 profileDispatch: Boolean,
                                 profileDispatchInfo: Option[File],
-                                inlineCachingMaxCandidates: Int)
+                                inlineCachingMaxCandidates: Int,
+                                typeAssignments: Map[Int, Int])
       extends Config {
     def withEntry(value: Global): Config =
       copy(entry = value)
@@ -91,5 +97,13 @@ object Config {
 
     def withInlineCachingMaxCandidates(value: Int): Config =
       copy(inlineCachingMaxCandidates = value)
+
+    def withTypeAssignments(value: Map[Int, Int]): Config = {
+      println("#" * 181)
+      println("Type assignments are:")
+      value foreach println
+      println("#" * 181)
+      copy(typeAssignments = value)
+    }
   }
 }

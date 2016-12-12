@@ -182,6 +182,27 @@ object ScalaNativePluginInternal {
       val maxCandidates     = nativeInlineCachingMaxCandidates.value
       val logger            = streams.value.log
 
+      val parsedMap: Map[Int, Set[Int]] =
+        profileInfo match {
+          case Some(f) if f.exists =>
+            optimizer.analysis.DispatchInfoParser(IO.read(f)).mapValues(_.toSet).filter {
+              case (_, vs) => vs.size <= 4
+            }
+          case _ => Map.empty
+        }
+      val constraints = Solver.getConstraints(parsedMap)
+      val solution = Solver.solve(constraints).withDefaultValue(-1)
+      println("#" * 181)
+      println("All constraints: ")
+      constraints foreach println
+      println("-" * 181)
+      println("Solution:")
+      println(solution)
+      println("#" * 181)
+      val assignments = parsedMap.mapValues(xs => xs.map(solution))
+
+      parsedMap.foreach { case (k, vs) => assert(vs.size == assignments(k).size) }
+
       val config = tools.Config.empty
         .withEntry(entry)
         .withPaths(classpath.map(p =>
@@ -191,6 +212,7 @@ object ScalaNativePluginInternal {
         .withProfileDispatch(profile)
         .withProfileDispatchInfo(profileInfo)
         .withInlineCachingMaxCandidates(maxCandidates)
+        .withTypeAssignments(solution)
 
       val nirFiles   = (Keys.target.value ** "*.nir").get.toSet
       val configFile = (streams.value.cacheDirectory / "native-config")

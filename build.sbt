@@ -133,7 +133,7 @@ lazy val libSettings =
 lazy val projectSettings =
   ScalaNativePlugin.projectSettings ++ Seq(
     scalaVersion := libScalaVersion,
-    nativeClangOptions ++= Seq("-O0"),
+    nativeClangOptions ++= Seq("-O2"),
     resolvers := Nil
   )
 
@@ -359,8 +359,9 @@ lazy val sandbox =
     .settings(projectSettings)
     .settings(noPublishSettings)
     .settings(
-      nativeOptimizerReporter := OptimizerReporter.toDirectory(
-        crossTarget.value)
+      nativeProfileInfo := Some(file("/Users/martin/Desktop/sandbox-out/dispatch.txt"))
+      // nativeOptimizerReporter := OptimizerReporter.toDirectory(
+      //   crossTarget.value)
     )
     .enablePlugins(ScalaNativePlugin)
 
@@ -418,6 +419,18 @@ lazy val testingCompiler =
     .dependsOn(testingCompilerInterface, nativelib)
 
 commands += Command.command("bench") { state =>
+  "set nativeProfileDispatch in benchmarks := false" ::
+    "set nativeProfileInfo in benchmarks := None" ::
+      "benchmarks/run" ::
+          "set nativeProfileDispatch in benchmarks := true" ::
+            """set nativeProfileInfo in benchmarks := Some(file("/Users/martin/Desktop/bench-dump/dispatch.txt"))""" ::
+              "benchmarks/run" ::
+                "set nativeProfileDispatch in benchmarks := false" ::
+                    "benchmarks/run" ::
+                       state
+}
+
+commands += Command.command("benchCandidates") { state =>
   "set nativeProfileDispatch in benchmarks := false" ::
     "set nativeProfileInfo in benchmarks := None" ::
       "benchmarks/run" ::

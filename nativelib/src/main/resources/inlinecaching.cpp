@@ -47,9 +47,8 @@ void method_call_dump(FILE* out) {
 
 extern "C" {
 
-    void method_call_log(int callee_t, jstring* method_name) {
-        string m(to_string(method_name));
-        method_calls.insert_occ(m, callee_t);
+    void method_call_log(int callee_t, int method_name_hash) {
+        method_calls.insert_occ(method_name_hash, callee_t);
     }
 
     void method_call_dump_file(jstring* file_name) {

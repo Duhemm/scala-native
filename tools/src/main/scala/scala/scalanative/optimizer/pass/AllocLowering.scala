@@ -12,7 +12,7 @@ import nir._, Inst.Let
 /** Hoists all stack allocations to the entry basic block and
  *  maps class allocations to calls to the gc allocator.
  */
-class AllocLowering(implicit fresh: Fresh, top: Top) extends Pass {
+class AllocLowering(config: tools.Config)(implicit fresh: Fresh, top: Top) extends Pass {
   import AllocLowering._
 
   private val stackallocs = mutable.UnrolledBuffer.empty[Inst]
@@ -29,12 +29,15 @@ class AllocLowering(implicit fresh: Fresh, top: Top) extends Pass {
       Seq()
 
     case Let(n, Op.Classalloc(ClassRef(cls))) =>
-      val size = Val.Local(fresh(), Type.I64)
+      val id      = cls.id
+      val ta      = 1L //config.typeAssignments.getOrElse(id, 0).toLong
+      val size    = Val.Local(fresh(), Type.I64)
+      val ptr     = Val.Local(fresh(), Type.Ptr)
+      val ptrInt  = Val.Local(fresh(), Type.I64)
+      val ptrInt2 = Val.Local(fresh(), Type.I64)
 
-      Seq(
-        Let(size.name, Op.Sizeof(cls.classStruct)),
-        Let(n, Op.Call(allocSig, alloc, Seq(cls.typeConst, size)))
-      )
+      Seq(Let(size.name, Op.Sizeof(cls.classStruct))) ++
+        packed(ta)(Let(n, Op.Call(allocSig, alloc, Seq(cls.typeConst, size))))
   }
 
   override def postDefn = {
@@ -55,5 +58,5 @@ object AllocLowering extends PassCompanion {
     Seq(Defn.Declare(Attrs.None, allocName, allocSig))
 
   override def apply(config: tools.Config, top: Top) =
-    new AllocLowering()(top.fresh, top)
+    new AllocLowering(config)(top.fresh, top)
 }

@@ -1,0 +1,35 @@
+From 80dfd59dff041ebfb2035a2cd61b45e0bd84168f Mon Sep 17 00:00:00 2001
+From: Martin Duhem <martin.duhem@gmail.com>
+Date: Thu, 8 Dec 2016 07:39:42 +0100
+Subject: [PATCH 11/13] Driver: remove a pass from the pipeline
+
+---
+ tools/src/main/scala/scala/scalanative/optimizer/Driver.scala | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/tools/src/main/scala/scala/scalanative/optimizer/Driver.scala b/tools/src/main/scala/scala/scalanative/optimizer/Driver.scala
+index ba7f75c..3e05768 100644
+--- a/tools/src/main/scala/scala/scalanative/optimizer/Driver.scala
++++ b/tools/src/main/scala/scala/scalanative/optimizer/Driver.scala
+@@ -14,6 +14,9 @@ sealed trait Driver {
+ 
+   /** Append a pass to the pipeline. */
+   def append(pass: PassCompanion): Driver
++
++  /** Removes a pass from the pipeline */
++  def remove(pass: PassCompanion): Driver
+ }
+ 
+ object Driver {
+@@ -57,5 +60,8 @@ object Driver {
+ 
+     def append(pass: PassCompanion): Driver =
+       new Impl(passes :+ pass)
++
++    def remove(pass: PassCompanion): Driver =
++      new Impl(passes filterNot (_ == pass))
+   }
+ }
+-- 
+2.9.3 (Apple Git-75)
+

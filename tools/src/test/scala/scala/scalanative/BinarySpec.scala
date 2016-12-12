@@ -52,6 +52,9 @@ abstract class BinarySpec extends CodeGenSpec {
         val binary    = createTempFile("native-binary", null).toFile()
         val logger    = ProcessLogger(_ => (), println _)
         val appll     = write(llFile)
+        println("$" * 181)
+        println("LL is at: " + appll.getAbsolutePath)
+        println("$" * 181)
 
         LLVM.compileLl(clangpp,
                        target,
@@ -102,8 +105,18 @@ abstract class BinarySpec extends CodeGenSpec {
     val errLines = scala.collection.mutable.Buffer.empty[String]
     val logger   = ProcessLogger(outLines += _, errLines += _)
     val exitCode = Process(binary.getAbsolutePath) ! logger
-
-    fn(exitCode, outLines, errLines)
+    try fn(exitCode, outLines, errLines)
+    catch {
+      case ex: Exception =>
+        println("#" * 181)
+        println("Test failed:")
+        ex.printStackTrace
+        println("#" * 181)
+        println("Binary is at " + binary.getAbsolutePath)
+        println("Press enter to exit.")
+        readLine()
+        throw ex
+    }
   }
 
   private def write(virtual: VirtualFile): File = {

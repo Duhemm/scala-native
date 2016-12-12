@@ -19,7 +19,7 @@ abstract class Benchmark[T] {
 
   def iterations(): Int = {
     // Run once to estimate how long this benchmark takes
-    val nsPerBenchmark = 3e10.toLong
+    val nsPerBenchmark = 3e9.toLong
     val timeEstimate   = estimateTime()
     Math.max(1, (nsPerBenchmark / timeEstimate).toInt)
   }

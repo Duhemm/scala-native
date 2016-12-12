@@ -10,7 +10,7 @@ import nir._, Inst.Let, Shows._
 /** Lowers class definitions, and field accesses to structs
  *  and corresponding derived pointer computation.
  */
-class ClassLowering(implicit top: Top, fresh: Fresh) extends Pass {
+class ClassLowering(config: tools.Config)(implicit top: Top, fresh: Fresh) extends Pass {
   import ClassLowering._
 
   override def preDefn = {
@@ -29,12 +29,14 @@ class ClassLowering(implicit top: Top, fresh: Fresh) extends Pass {
   }
 
   override def preInst = {
-    case Let(n, Op.Field(obj, FieldRef(cls: Class, fld))) =>
+    case Let(n, Op.Field(packed, FieldRef(cls: Class, fld))) =>
       val classty = cls.classStruct
 
-      Seq(
-        Let(n, Op.Elem(classty, obj, Seq(Val.I32(0), Val.I32(fld.index + 1))))
-      )
+      unpacked(packed) { (_, obj) =>
+        Seq(
+          Let(n, Op.Elem(classty, obj, Seq(Val.I32(0), Val.I32(fld.index + 1))))
+        )
+      }
   }
 
   override def preType = {
@@ -44,5 +46,5 @@ class ClassLowering(implicit top: Top, fresh: Fresh) extends Pass {
 
 object ClassLowering extends PassCompanion {
   override def apply(config: tools.Config, top: Top) =
-    new ClassLowering()(top, top.fresh)
+    new ClassLowering(config)(top, top.fresh)
 }

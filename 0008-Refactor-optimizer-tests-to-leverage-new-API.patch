@@ -1,0 +1,688 @@
+From 526facab7abf4ae3f087c0728c81b82ef36d6620 Mon Sep 17 00:00:00 2001
+From: Martin Duhem <martin.duhem@gmail.com>
+Date: Wed, 30 Nov 2016 15:45:57 +0100
+Subject: [PATCH 08/13] Refactor optimizer tests to leverage new API
+
+Also introduce different base classes that help test the different
+components of scala-native.
+---
+ build.sbt                                          |   6 +-
+ .../sbtplugin/ScalaNativePluginInternal.scala      |   2 +-
+ .../java/scala/scalanative/api/NIRCompiler.java    |  27 +++++-
+ .../scala/scalanative/compiler/NIRCompiler.scala   |  21 ++---
+ .../test/scala/scala/scalanative/BinarySpec.scala  | 105 +++++++++++++++++++++
+ .../test/scala/scala/scalanative/CodeGenSpec.scala |  35 +++++++
+ .../scala/scala/scalanative/FrameworkTest.scala    |  42 ++++++---
+ .../test/scala/scala/scalanative/LinkerSpec.scala  |  71 ++++++++++++++
+ .../test/scala/scala/scalanative/NIRCompiler.scala |  54 ++++++++++-
+ .../scala/scala/scalanative/NIRCompilerTest.scala  |  37 ++++++--
+ .../test/scala/scala/scalanative/NativeSpec.scala  |  28 ------
+ .../scala/scala/scalanative/OptimizerSpec.scala    |  29 ++++++
+ 12 files changed, 387 insertions(+), 70 deletions(-)
+ create mode 100644 tools/src/test/scala/scala/scalanative/BinarySpec.scala
+ create mode 100644 tools/src/test/scala/scala/scalanative/CodeGenSpec.scala
+ create mode 100644 tools/src/test/scala/scala/scalanative/LinkerSpec.scala
+ delete mode 100644 tools/src/test/scala/scala/scalanative/NativeSpec.scala
+ create mode 100644 tools/src/test/scala/scala/scalanative/OptimizerSpec.scala
+
+diff --git a/build.sbt b/build.sbt
+index cbbd527..a998af8 100644
+--- a/build.sbt
++++ b/build.sbt
+@@ -30,6 +30,8 @@ lazy val setUpTestingCompiler = Def.task {
+     (testingcompilercp :+ testingcompilerjar) map (_.getAbsolutePath) mkString pathSeparator
+   sys.props("scalanative.nativeruntime.cp") =
+     Seq(nativelibjar, scalalibjar, javalibjar) mkString pathSeparator
++  sys.props("scalanative.nativelib.dir") =
++    scalanative.sbtplugin.ScalaNativePluginInternal.nativelib.getAbsolutePath
+ }
+ 
+ lazy val publishSettings = Seq(
+@@ -162,7 +164,9 @@ lazy val tools =
+       publishLocal := publishLocal
+         .dependsOn(publishLocal in nir)
+         .dependsOn(publishLocal in util)
+-        .value
++        .value,
++      // Running tests in parallel results in `FileSystemAlreadyExistsException`
++      parallelExecution in Test := false
+     )
+     .dependsOn(nir, util, llvmTools, testingCompilerInterface % Test)
+ 
+diff --git a/sbt-scala-native/src/main/scala/scala/scalanative/sbtplugin/ScalaNativePluginInternal.scala b/sbt-scala-native/src/main/scala/scala/scalanative/sbtplugin/ScalaNativePluginInternal.scala
+index f82e1e6..0b92d07 100644
+--- a/sbt-scala-native/src/main/scala/scala/scalanative/sbtplugin/ScalaNativePluginInternal.scala
++++ b/sbt-scala-native/src/main/scala/scala/scalanative/sbtplugin/ScalaNativePluginInternal.scala
+@@ -32,7 +32,7 @@ object ScalaNativePluginInternal {
+   val nativeExternalDependencies =
+     taskKey[Seq[String]]("List all external dependencies.")
+ 
+-  private lazy val nativelib: File =
++  lazy val nativelib: File =
+     Path.userHome / ".scalanative" / ("nativelib-" + nir.Versions.current)
+ 
+   private def abs(file: File): String =
+diff --git a/testing-compiler-interface/src/main/java/scala/scalanative/api/NIRCompiler.java b/testing-compiler-interface/src/main/java/scala/scalanative/api/NIRCompiler.java
+index 2e2b531..e98e87d 100644
+--- a/testing-compiler-interface/src/main/java/scala/scalanative/api/NIRCompiler.java
++++ b/testing-compiler-interface/src/main/java/scala/scalanative/api/NIRCompiler.java
+@@ -2,7 +2,30 @@ package scala.scalanative.api;
+ 
+ import java.io.File;
+ 
++/**
++ * NIR compiler API.
++ *
++ * This API is used for testing the NIR compiler (the component that compiles
++ * Scala trees to NIR.)
++ */
+ public interface NIRCompiler {
+-    public File[] getNIR(String source);
+-    public File[] getNIR(File base);
++	/**
++	 * Compiles the source code given and returns all the files produced during
++	 * compilation.
++	 *
++	 * @param source The source code to compile.
++	 * @return All the files produced during compilation (classfiles, nir, hnir,
++	 *         etc.)
++	 */
++    public File[] compile(String source);
++
++    /**
++     * Compiles all the source files in `base` and returns all the files
++     * produced during compilation.
++     *
++     * @param base The base directory containing the source files.
++     * @return All the files produced during compilation (classfiles, nir, hnir,
++     *         etc.)
++     */
++    public File[] compile(File base);
+ }
+diff --git a/testing-compiler/src/main/scala/scalanative/compiler/NIRCompiler.scala b/testing-compiler/src/main/scala/scalanative/compiler/NIRCompiler.scala
+index e84484f..5c674d9 100644
+--- a/testing-compiler/src/main/scala/scalanative/compiler/NIRCompiler.scala
++++ b/testing-compiler/src/main/scala/scalanative/compiler/NIRCompiler.scala
+@@ -18,35 +18,26 @@ class NIRCompiler(outputDir: File) extends api.NIRCompiler {
+ 
+   def this() = this(Files.createTempDirectory("scala-native-target").toFile())
+ 
+-  /**
+-   * Compiles the given code, and returns the `.hnir` files.
+-   */
+-  override def getNIR(code: String): Array[File] = {
++  override def compile(code: String): Array[File] = {
+     val source = new BatchSourceFile(NoFile, code)
+-    getNIR(Seq(source)).toArray
++    compile(Seq(source)).toArray
+   }
+ 
+-  /**
+-   * Compiles the given file, and returns the `.hnir` files.
+-   */
+-  override def getNIR(base: File): Array[File] = {
++  override def compile(base: File): Array[File] = {
+     val sources = getFiles(base, _.getName endsWith ".scala")
+     val sourceFiles = sources map { s =>
+       val abstractFile = AbstractFile.getFile(s)
+       new BatchSourceFile(abstractFile)
+     }
+-    getNIR(sourceFiles).toArray
++    compile(sourceFiles).toArray
+   }
+ 
+-  /**
+-   * Compiles the given files, and returns the `.hnir` files.
+-   */
+-  private def getNIR(sources: Seq[SourceFile]): Seq[File] = {
++  private def compile(sources: Seq[SourceFile]): Seq[File] = {
+     val global = getCompiler(options = ScalaNative)
+     import global._
+     val run = new Run
+     run.compileSources(sources.toList)
+-    getFiles(outputDir, _.getName endsWith ".hnir")
++    getFiles(outputDir, _ => true)
+   }
+ 
+   /**
+diff --git a/tools/src/test/scala/scala/scalanative/BinarySpec.scala b/tools/src/test/scala/scala/scalanative/BinarySpec.scala
+new file mode 100644
+index 0000000..01eb73c
+--- /dev/null
++++ b/tools/src/test/scala/scala/scalanative/BinarySpec.scala
+@@ -0,0 +1,105 @@
++package scala.scalanative
++
++import llvm.LLVM
++import java.io.File
++import java.nio.file.Files.{createTempDirectory, createTempFile}
++import scala.sys.process.{Process, ProcessLogger}
++import tools.Config
++import optimizer.Driver
++import io.VirtualFile
++
++/**
++ * Base class to test:
++ *  - Producing a binary file from scala code
++ *  - Running the binary file.
++ */
++abstract class BinarySpec extends CodeGenSpec {
++
++  /** The default options to pass to clang */
++  val defaultClangOptions: Seq[String] = {
++    val lrt = Option(sys props "os.name") match {
++      case Some("Linux") => Seq("-lrt")
++      case _             => Seq()
++    }
++    LLVM.includes ++ LLVM.libs ++ lrt
++  }
++
++  /**
++   * Compiles the given sources and produce an executable binary file.
++   *
++   * @param entry   The entry point for the linker.
++   * @param sources Map from file name to file content representing all the code
++   *                to compile.
++   * @param driver  The driver that defines the pipeline.
++   * @param linkage Given a native library, provide the linkage kind (static or
++   *                dynamic). Defaults to dynamic.
++   * @param opts    The options to pass to clang.
++   * @param fn      A function to apply to the products of the compilation.
++   * @return The result of applying `fn` to the result of compilation.
++   */
++  def makeBinary[T](entry: String,
++                    sources: Map[String, String],
++                    driver: Driver = Driver(),
++                    linkage: Map[String, String] = Map.empty,
++                    opts: Seq[String] = defaultClangOptions)(
++      fn: (Config, Seq[nir.Attr.Link], File) => T): T =
++    codegen(entry, sources, driver) {
++      case (config, links, llFile) =>
++        val clangpp   = LLVM.discover("clang++", Seq(("3", "8"), ("3", "7")))
++        val target    = createTempDirectory("native-test-target").toFile()
++        val nativelib = new File(sys.props("scalanative.nativelib.dir"))
++        val binary    = createTempFile("native-binary", null).toFile()
++        val logger    = ProcessLogger(_ => (), println _)
++        val appll     = write(llFile)
++
++        LLVM.compileLl(clangpp,
++                       target,
++                       nativelib,
++                       appll,
++                       binary,
++                       links.map(_.name),
++                       linkage,
++                       opts,
++                       logger)
++
++        fn(config, links, binary)
++    }
++
++  /**
++   * Compiles and runs the given sources.
++   *
++   * @param entry The entry point for the linker.
++   * @param sources Map from file name to file content representing all the code
++   *                to compile.
++   * @param driver  The driver that defines the pipeline.
++   * @param linkage Given a native library, provide the linkage kind (static or
++   *                dynamic). Defaults to dynamic.
++   * @param opts    The options to pass to clang.
++   * @param fn      A function to apply to the output of the run.
++   * @return The result of applying `fn` to the output of the run.
++   */
++  def run[T](entry: String,
++             sources: Map[String, String],
++             driver: Driver = Driver(),
++             linkage: Map[String, String] = Map.empty,
++             opts: Seq[String] = defaultClangOptions)(
++      fn: (Int, Seq[String], Seq[String]) => T): T =
++    makeBinary(entry, sources, driver, linkage, opts) {
++      case (_, _, binary) =>
++        val outLines = scala.collection.mutable.Buffer.empty[String]
++        val errLines = scala.collection.mutable.Buffer.empty[String]
++        val logger   = ProcessLogger(outLines += _, errLines += _)
++        val exitCode = Process(binary.getAbsolutePath) ! logger
++
++        fn(exitCode, outLines, errLines)
++    }
++
++  private def write(virtual: VirtualFile): File = {
++    val out = createTempFile("native-codegen", ".ll").toFile()
++    val channel =
++      java.nio.channels.Channels.newChannel(new java.io.FileOutputStream(out))
++    channel.write(virtual.contents)
++    out
++  }
++
++}
+diff --git a/tools/src/test/scala/scala/scalanative/CodeGenSpec.scala b/tools/src/test/scala/scala/scalanative/CodeGenSpec.scala
+new file mode 100644
+index 0000000..dee4099
+--- /dev/null
++++ b/tools/src/test/scala/scala/scalanative/CodeGenSpec.scala
+@@ -0,0 +1,35 @@
++package scala.scalanative
++
++import io.VirtualFile
++import optimizer.Driver
++import java.nio.file.Paths
++import tools.Config
++
++/** Base class to test code generation */
++abstract class CodeGenSpec extends OptimizerSpec {
++
++  /**
++   * Performs code generation on the given sources.
++   *
++   * @param entry   The entry point for the linker.
++   * @param sources Map from file name to file content representing all the code
++   *                to compile
++   * @param fn      A function to apply to the products of the compilation.
++   * @param driver  The driver that defines the pipeline.
++   * @return The result of applying `fn` to the resulting file.
++   */
++  def codegen[T](entry: String,
++                 sources: Map[String, String],
++                 driver: Driver = Driver())(fn: (Config, Seq[nir.Attr.Link],
++                                                 VirtualFile) => T): T =
++    optimize(entry, sources, driver) {
++      case (config, links, assembly) =>
++        tools.codegen(config, assembly)
++        val llFile =
++          config.targetDirectory.get(Paths.get("out.ll")) getOrElse fail(
++            "out.ll not found.")
++
++        fn(config, links, llFile)
++    }
++
++}
+diff --git a/tools/src/test/scala/scala/scalanative/FrameworkTest.scala b/tools/src/test/scala/scala/scalanative/FrameworkTest.scala
+index 0895d93..567f074 100644
+--- a/tools/src/test/scala/scala/scalanative/FrameworkTest.scala
++++ b/tools/src/test/scala/scala/scalanative/FrameworkTest.scala
+@@ -1,27 +1,47 @@
+ package scala.scalanative
+ 
+-import tools._
++import nir.Global
+ 
+ import org.scalatest._
+ 
+-class FrameworkTest extends NativeSpec with Matchers {
++class FrameworkTest extends BinarySpec with Matchers {
+ 
+   "The test framework" should "return the definitions for a single class" in {
+-    withDefinitions("""class A {
+-                      |  def foo(name: String): Unit =
+-                      |    println(s"Hello, $name!")
+-                      |}""".stripMargin) {
+-      defns =>
+-        defns should have length(3)
++    link("A$",
++         """object A {
++           |  def main(args: Array[String]): Unit =
++           |    println("Hello, world!")
++           |}""".stripMargin) {
++      case (_, _, defns) =>
++        val defNames = defns map (_.name)
++        defNames should contain(Global.Top("A$"))
+     }
+   }
+ 
+   it should "return the definitions for classes in multiple files" in {
+     val sources = Map("A.scala" -> "class A",
+-                      "B.scala" -> "class B extends A")
++                      "B.scala" -> """object B extends A {
++                                     |  def main(args: Array[String]): Unit = ()
++                                     |}""".stripMargin)
+ 
+-    withDefinitions(sources) { defns =>
+-      defns should have length(4)
++    link("B$", sources) {
++      case (_, _, defns) =>
++        val defNames = defns map (_.name)
++        defNames should contain(Global.Top("A"))
++        defNames should contain(Global.Top("B$"))
++    }
++  }
++
++  it should "run a simple example" in {
++    run("A$",
++        """object A {
++          |  def main(args: Array[String]): Unit =
++          |    println("Hello, world!")
++          |}""".stripMargin) {
++      case (exit, out, err) =>
++        out should have length (1)
++        out(0) should be("Hello, world!")
++        exit should be(0)
+     }
+   }
+ }
+diff --git a/tools/src/test/scala/scala/scalanative/LinkerSpec.scala b/tools/src/test/scala/scala/scalanative/LinkerSpec.scala
+new file mode 100644
+index 0000000..edd9804
+--- /dev/null
++++ b/tools/src/test/scala/scala/scalanative/LinkerSpec.scala
+@@ -0,0 +1,71 @@
++package scala.scalanative
++
++import scala.language.implicitConversions
++
++import java.io.File
++import java.nio.file.Files
++
++import util.Scope
++import io.VirtualDirectory
++import nir.Global
++import tools.Config
++import linker.Path
++import optimizer.Driver
++
++import org.scalatest.FlatSpec
++
++/** Base class to test the linker. */
++abstract class LinkerSpec extends FlatSpec {
++
++  /**
++   * Runs the linker using `driver` with `entry` as entry point on `sources`,
++   * and applies `fn` to the definitions.
++   *
++   * @param entry   The entry point for the linker.
++   * @param sources Map from file name to file content representing all the code
++   *                to compile and link.
++   * @param driver  The driver that defines the pipeline.
++   * @param fn      A function to apply to the products of the compilation.
++   * @return The result of applying `fn` to the resulting definitions.
++   */
++  def link[T](entry: String,
++              sources: Map[String, String],
++              driver: Driver = Driver())(fn: (Config, Seq[nir.Attr.Link],
++                                              Seq[nir.Defn]) => T): T =
++    Scope { implicit in =>
++      val outDir     = Files.createTempDirectory("native-test-out").toFile()
++      val compiler   = NIRCompiler.getCompiler(outDir)
++      val sourcesDir = NIRCompiler.writeSources(sources)
++      val files      = compiler.compile(sourcesDir)
++      val config     = makeConfig(outDir, entry)
++
++      val (_, links, defns) = tools.link(config, driver)
++
++      fn(config, links, defns)
++    }
++
++  private def makePaths(outDir: File)(implicit in: Scope) = {
++    val parts: Array[File] =
++      sys
++        .props("scalanative.nativeruntime.cp")
++        .split(File.pathSeparator)
++        .map(new File(_))
++
++    (parts :+ outDir).map(p => Path(VirtualDirectory.real(p)))
++  }
++
++  private def makeConfig(outDir: File, entryName: String)(
++      implicit in: Scope): Config = {
++    val entry = Global.Top(entryName)
++    val paths = makePaths(outDir)
++    Config.empty
++      .withTargetDirectory(VirtualDirectory.real(outDir))
++      .withPaths(paths)
++      .withEntry(entry)
++  }
++
++  protected implicit def String2MapStringString(
++      code: String): Map[String, String] =
++    Map("source.scala" -> code)
++
++}
+diff --git a/tools/src/test/scala/scala/scalanative/NIRCompiler.scala b/tools/src/test/scala/scala/scalanative/NIRCompiler.scala
+index 9125654..be4032f 100644
+--- a/tools/src/test/scala/scala/scalanative/NIRCompiler.scala
++++ b/tools/src/test/scala/scala/scalanative/NIRCompiler.scala
+@@ -7,9 +7,7 @@ import java.net.URLClassLoader
+ object NIRCompiler {
+ 
+   private val allow: String => Boolean =
+-    n =>
+-      n.startsWith("scala.scalanative.api.") || !n.startsWith(
+-        "scala.")
++    n => n.startsWith("scala.scalanative.api.") || !n.startsWith("scala.")
+ 
+   private val classLoader = {
+     val parts = sys
+@@ -28,6 +26,12 @@ object NIRCompiler {
+     new URLClassLoader(parts.toArray, parent)
+   }
+ 
++  /**
++   * Returns an instance of the NIRCompiler that will compile to a temporary
++   * directory.
++   *
++   * @return An NIRCompiler that will compile to a temporary directory.
++   */
+   def getCompiler(): api.NIRCompiler = {
+     val clazz =
+       classLoader.loadClass("scala.scalanative.NIRCompiler")
+@@ -40,6 +44,12 @@ object NIRCompiler {
+     }
+   }
+ 
++  /**
++   * Returns an instance of the NIRCompiler that will compile to `outDir`.
++   *
++   * @param outDir Where to write all products of compilation.
++   * @return An NIRCompiler that will compile to `outDir`.
++   */
+   def getCompiler(outDir: File): api.NIRCompiler = {
+     val clazz =
+       classLoader.loadClass("scala.scalanative.NIRCompiler")
+@@ -53,27 +63,63 @@ object NIRCompiler {
+     }
+   }
+ 
++  /**
++   * Applies `fn` to an NIRCompiler that compiles to `outDir`.
++   *
++   * @param outDir Where to write all products of compilation.
++   * @param fn     The function to apply to the NIRCompiler.
++   * @return The result of applying fn to the NIRCompiler
++   */
+   def apply[T](outDir: File)(fn: api.NIRCompiler => T): T =
+     withSources(outDir)(Map.empty) { case (_, compiler) => fn(compiler) }
+ 
++  /**
++   * Applies `fn` to an NIRCompiler that compiles to a temporary directory.
++   *
++   * @param fn     The function to apply to the NIRCompiler.
++   * @return The result of applying fn to the NIRCompiler
++   */
+   def apply[T](fn: api.NIRCompiler => T): T =
+     withSources(Map.empty[String, String]) {
+       case (_, compiler) => fn(compiler)
+     }
+ 
++  /**
++   * Writes the sources `sources` and applies `fn` to the base directory
++   * holding the sources and the NIRCompiler.
++   *
++   * @param outDir  Where to write all products of compilation.
++   * @param sources Map from file name to file content representing the sources.
++   * @param fn      The function to apply to the NIRCompiler and the base dir.
++   * @return The result of applying `fn` to the NIRCompiler and the base dir.
++   */
+   def withSources[T](outDir: File)(sources: Map[String, String])(
+       fn: (File, api.NIRCompiler) => T): T = {
+     val sourcesDir = writeSources(sources)
+     fn(sourcesDir, getCompiler(outDir))
+   }
+ 
++  /**
++   * Writes the sources `sources` and applies `fn` to the base directory
++   * holding the sources and the NIRCompiler.
++   *
++   * @param sources Map from file name to file content representing the sources.
++   * @param fn      The function to apply to the NIRCompiler and the base dir.
++   * @return The result of applying `fn` to the NIRCompiler and the base dir.
++   */
+   def withSources[T](sources: Map[String, String])(
+       fn: (File, api.NIRCompiler) => T): T = {
+     val sourcesDir = writeSources(sources)
+     fn(sourcesDir, getCompiler())
+   }
+ 
+-  private def writeSources(sources: Map[String, String]): File = {
++  /**
++   * Writes the sources `sources` to a temporary directory.
++   *
++   * @param sources Map from file name to file content representing the sources.
++   * @return The base directory that contains the sources.
++   */
++  def writeSources(sources: Map[String, String]): File = {
+     val baseDir = Files.createTempDirectory("scala-native-sources").toFile()
+     sources foreach {
+       case (name, content) => makeFile(baseDir, name, content)
+diff --git a/tools/src/test/scala/scala/scalanative/NIRCompilerTest.scala b/tools/src/test/scala/scala/scalanative/NIRCompilerTest.scala
+index 5b2c209..220d22a 100644
+--- a/tools/src/test/scala/scala/scalanative/NIRCompilerTest.scala
++++ b/tools/src/test/scala/scala/scalanative/NIRCompilerTest.scala
+@@ -1,13 +1,16 @@
+ package scala.scalanative
+ 
++import java.io.File
++
+ import org.scalatest._
+ 
+ class NIRCompilerTest extends FlatSpec with Matchers with Inspectors {
+ 
+-  "The compiler" should "be able to get NIR files" in {
+-    val files = NIRCompiler { _ getNIR "class A" }
+-    files should have length 1
+-    files(0).getName should be("A.hnir")
++  "The compiler" should "return products of compilation" in {
++    val files =
++      NIRCompiler { _ compile "class A" }.filter(_.isFile).map(_.getName)
++    val expectedNames = Seq("A.class", "A.hnir", "A.nir")
++    files should contain theSameElementsAs expectedNames
+   }
+ 
+   it should "compile whole directories" in {
+@@ -21,23 +24,41 @@ class NIRCompilerTest extends FlatSpec with Matchers with Inspectors {
+ 
+     NIRCompiler.withSources(sources) {
+       case (sourcesDir, compiler) =>
+-        val nirFiles = compiler.getNIR(sourcesDir) map (_.getName)
++        val nirFiles =
++          compiler.compile(sourcesDir) filter (_.isFile) map (_.getName)
+         val expectedNames =
+-          Seq("E$.hnir", "A.hnir", "B.hnir", "C.hnir", "D.hnir")
++          Seq("A.class",
++              "A.hnir",
++              "A.nir",
++              "B.class",
++              "B.hnir",
++              "B.nir",
++              "C.class",
++              "C.hnir",
++              "C.nir",
++              "D.class",
++              "D.hnir",
++              "D.nir",
++              "E$.class",
++              "E$.hnir",
++              "E$.nir",
++              "E.class")
+         nirFiles should contain theSameElementsAs expectedNames
+     }
+   }
+ 
+   it should "report compilation errors" in {
+     assertThrows[api.CompilationFailedException] {
+-      NIRCompiler { _ getNIR "invalid" }
++      NIRCompiler { _ compile "invalid" }
+     }
+   }
+ 
+   it should "compile to a specified directory" in {
+     val temporaryDir =
+       java.nio.file.Files.createTempDirectory("my-target").toFile()
+-    val nirFiles = NIRCompiler(outDir = temporaryDir) { _ getNIR "class A" }
++    val nirFiles =
++      NIRCompiler(outDir = temporaryDir) { _ compile "class A" }
++        .filter(_.isFile)
+     forAll(nirFiles) { _.getParentFile should be(temporaryDir) }
+   }
+ 
+diff --git a/tools/src/test/scala/scala/scalanative/NativeSpec.scala b/tools/src/test/scala/scala/scalanative/NativeSpec.scala
+deleted file mode 100644
+index 93378a2..0000000
+--- a/tools/src/test/scala/scala/scalanative/NativeSpec.scala
++++ /dev/null
+@@ -1,28 +0,0 @@
+-package scala.scalanative
+-
+-import nir.parser.NirParser
+-
+-import scala.io.Source
+-
+-import fastparse.all.Parsed
+-
+-import org.scalatest.FlatSpec
+-
+-abstract class NativeSpec extends FlatSpec {
+-  def withDefinitions[T](code: String)(fn: Seq[nir.Defn] => T): T =
+-    withDefinitions(Map("source.scala" -> code))(fn)
+-
+-  def withDefinitions[T](sources: Map[String, String])(fn: Seq[nir.Defn] => T): T =
+-    NIRCompiler.withSources(sources) {
+-      case (sourcesDir, compiler) =>
+-        val nirFiles = compiler.getNIR(sourcesDir)
+-        val definitions =
+-          for { file                     <- nirFiles
+-                hnir                     =  Source.fromFile(file)
+-                Parsed.Success(defns, _) =  NirParser(hnir.mkString)
+-                defn                     <- defns } yield defn
+-
+-        fn(definitions)
+-    }
+-
+-}
+diff --git a/tools/src/test/scala/scala/scalanative/OptimizerSpec.scala b/tools/src/test/scala/scala/scalanative/OptimizerSpec.scala
+new file mode 100644
+index 0000000..5a40397
+--- /dev/null
++++ b/tools/src/test/scala/scala/scalanative/OptimizerSpec.scala
+@@ -0,0 +1,29 @@
++package scala.scalanative
++
++import optimizer.Driver
++import tools.Config
++
++/** Base class to test the optimizer */
++abstract class OptimizerSpec extends LinkerSpec {
++
++  /**
++   * Runs the optimizer defined by `driver` on `sources`.
++   * The code will first be linked using `entry` as entry point.
++   *
++   * @param entry   The entry point for the linker.
++   * @param sources Map from file name to file content representing all the code
++   *                to compile and optimize.
++   * @param driver  The driver that defines the pipeline.
++   * @param fn      A function to apply to the products of the compilation.
++   * @return The result of applying `fn` to the resulting definitions.
++   */
++  def optimize[T](entry: String,
++                  sources: Map[String, String],
++                  driver: Driver = Driver())(fn: (Config, Seq[nir.Attr.Link],
++                                                  Seq[nir.Defn]) => T): T =
++    link(entry, sources, driver) {
++      case (config, links, assembly) =>
++        fn(config, links, tools.optimize(config, driver, assembly))
++    }
++
++}
+-- 
+2.9.3 (Apple Git-75)
+

@@ -18,7 +18,7 @@ class MethodCallProfiling(implicit top: Top, fresh: Fresh) extends Pass {
 
   private def addProfiling(enclosingDefn: Global, inst: Inst): Seq[Inst] =
     inst match {
-      case inst @ Let(n, Op.Method(obj, MethodRef(cls: Class, meth)))
+      case inst @ Let(n, Op.Method(packedObj, MethodRef(cls: Class, meth)))
           if meth.isVirtual =>
         val typeptr   = Val.Local(fresh(), Type.Ptr)
         val typeidptr = Val.Local(fresh(), Type.Ptr)
@@ -30,18 +30,19 @@ class MethodCallProfiling(implicit top: Top, fresh: Fresh) extends Pass {
           val methName  = sh"${meth.name}".toString
           s"$enclosing -> $instName -> $methName"
         }
-
-        Seq(
-          Let(typeptr.name, Op.Load(Type.Ptr, obj)),
-          Let(typeidptr.name,
-              Op.Elem(cls.typeStruct, typeptr, Seq(Val.I32(0), Val.I32(0)))),
-          Let(typeid.name, Op.Load(Type.I32, typeidptr)),
-          Let(
-            Op.Call(profileMethodSig,
-                    profileMethod,
-                    Seq(typeid, Val.String(key)))),
-          inst
-        )
+        unpacked(packedObj) { (_, obj) =>
+          Seq(
+            Let(typeptr.name, Op.Load(Type.Ptr, obj)),
+            Let(typeidptr.name,
+                Op.Elem(cls.typeStruct, typeptr, Seq(Val.I32(0), Val.I32(0)))),
+            Let(typeid.name, Op.Load(Type.I32, typeidptr)),
+            Let(
+              Op.Call(profileMethodSig,
+                      profileMethod,
+                      Seq(typeid, Val.I32(key.##)))),
+            inst
+          )
+        }
 
       case other =>
         Seq(other)
@@ -59,7 +60,7 @@ object MethodCallProfiling extends PassCompanion {
 
   val profileMethodName = Global.Top("method_call_log")
   val profileMethodSig =
-    Type.Function(Seq(Arg(Type.I32), Arg(Rt.String)), Type.Void)
+    Type.Function(Seq(Arg(Type.I32), Arg(Type.I32)), Type.Void)
   val profileMethod = Val.Global(profileMethodName, profileMethodSig)
 
   override val injects = Seq(

@@ -1,10 +1,20 @@
 package java.lang
 
-import scalanative.native.Ptr
+import scalanative.native._
 import scalanative.runtime.{Array => _, _}
 
 final class _Class[A](val ty: Ptr[Type]) {
-  def getName(): String = (!ty).name
+  def getName(): String = {
+    "Some class"
+    // val intPtr = ty.cast[scala.Long]
+    // println("############")
+    // println("Inptr  : " + intPtr)
+    // println("Intptr : " + (intPtr & 0xFFFFFFFE))
+    // println("############")
+    // val lng = intPtr & 0xFFFFFFFE
+    // val unpacked = lng.cast[Ptr[Type]]
+    // (!unpacked).name
+  }
 
   override def hashCode: Int = ty.cast[scala.Long].##
 

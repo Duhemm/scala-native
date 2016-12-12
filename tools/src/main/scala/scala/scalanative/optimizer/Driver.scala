@@ -48,7 +48,7 @@ object Driver {
           pass.AllocLowering,
           pass.SizeofLowering,
           pass.CopyPropagation,
-          pass.LogInsts,
+          // pass.LogInsts,
           pass.DeadCodeElimination))
 
   /** Create an empty pass-lesss driver. */
