@@ -30,7 +30,7 @@ class AllocLowering(config: tools.Config)(implicit fresh: Fresh, top: Top) exten
 
     case Let(n, Op.Classalloc(ClassRef(cls))) =>
       val id      = cls.id
-      val ta      = 1L //config.typeAssignments.getOrElse(id, 0).toLong
+      val ta      = config.typeAssignments.getOrElse(id, 0).toLong
       val size    = Val.Local(fresh(), Type.I64)
       val ptr     = Val.Local(fresh(), Type.Ptr)
       val ptrInt  = Val.Local(fresh(), Type.I64)

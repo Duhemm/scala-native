@@ -29,10 +29,16 @@ sealed abstract class Array[T]
     extends java.io.Serializable
     with java.lang.Cloneable {
 
+  @inline protected def unpack[T](ptr: Ptr[T]): Ptr[T] = {
+    val intPtr = ptr.cast[scala.Long]
+    val lng    = intPtr & 0xFFFFFFFE
+    lng.cast[Ptr[T]]
+  }
+
   /** Number of elements of the array. */
   @inline def length: Int =
     // TODO: Update once we support ptr->field
-    !(this.cast[Ptr[Byte]] + sizeof[Ptr[_]]).cast[Ptr[Int]]
+    !(unpack(this).cast[Ptr[Byte]] + sizeof[Ptr[_]]).cast[Ptr[Int]]
 
   /** Size between elements in the array. */
   def stride: CSize
