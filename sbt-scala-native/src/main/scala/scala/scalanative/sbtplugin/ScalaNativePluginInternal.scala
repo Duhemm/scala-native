@@ -190,18 +190,8 @@ object ScalaNativePluginInternal {
             }
           case _ => Map.empty
         }
-      val constraints = Solver.getConstraints(parsedMap)
-      val solution = Solver.solve(constraints).withDefaultValue(-1)
-      println("#" * 181)
-      println("All constraints: ")
-      constraints foreach println
-      println("-" * 181)
-      println("Solution:")
-      println(solution)
-      println("#" * 181)
-      val assignments = parsedMap.mapValues(xs => xs.map(solution))
 
-      parsedMap.foreach { case (k, vs) => assert(vs.size == assignments(k).size) }
+      val solution = optimizer.analysis.Solver.solveFromProfiling(parsedMap)
 
       val config = tools.Config.empty
         .withEntry(entry)

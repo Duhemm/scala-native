@@ -182,7 +182,7 @@ class InlineCaching(config: tools.Config,
         blockName,
         Nil,
         Seq(
-          Let(Op.Call(log_improvedSig, log_improved, Seq())),
+          //Let(Op.Call(log_improvedSig, log_improved, Seq())),
           Let(result, call.copy(ptr = Val.Global(impl, Type.Ptr))),
           Inst.Jump(Next.Label(next, Seq(Val.Local(result, call.resty))))
         )
@@ -243,7 +243,11 @@ class InlineCaching(config: tools.Config,
 
         dispatchInfo getOrElse (key.##, Seq()) flatMap (top classWithId _) match {
           case allCandidates if allCandidates.nonEmpty && allCandidates.forall(c => config.typeAssignments(c.id) >= 0) =>
+              println("-" * 181)
               println("Doing some crazy stuff at " + key + " (" + key.## + ")")
+              println("Because all candidates have type info in their pointer:")
+              allCandidates foreach { c => println("--> " + config.typeAssignments(c.id) + " <--- " + c) }
+              println("-" * 181)
               try {
               // We don't inline calls to all candidates, only the most frequent for
               // performance.

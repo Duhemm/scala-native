@@ -8,6 +8,41 @@ import tools.Config
 
 abstract class InlineCachingSpec extends BenchmarkSpec {
 
+  def easyInlineCaching[T](entry: String,
+                           sources: Map[String, String])(fn: (Int, Seq[String], Seq[String]) => T): T = {
+    val configForProfiling =
+      (out: File) => (c: Config) => c.withProfileDispatch(true)
+                                     .withProfileDispatchInfo(Some(out))
+
+    val configForRunning =
+      (out: File) => (c: Config) => {
+        val parsedMap: Map[Int, Set[Int]] =
+          out match {
+            case f if f.exists =>
+              optimizer.analysis.DispatchInfoParser(scala.io.Source.fromFile(f).mkString).mapValues(_.toSet).filter {
+                case (_, vs) => vs.size <= 4
+              }
+                case _ => Map.empty
+          }
+        val solution = optimizer.analysis.Solver.solveFromProfiling(parsedMap.filter { case (k, v) => v.size < 3 }
+)
+        c.withProfileDispatch(false)
+         .withProfileDispatchInfo(Some(out))
+         .withTypeAssignments(solution)
+      }
+    val out = Files.createTempFile("dispatch", ".txt").toFile()
+
+    println("#" * 181)
+    println("Profiling...")
+    run(entry, sources, configFn = configForProfiling(out)) { case (_, _, _) => () }
+
+    println("#" * 181)
+    println("Running...")
+    run(entry, sources, configFn = configForRunning(out)) {
+      case (exitCode, outLines, errLines) => fn(exitCode, outLines, errLines)
+    }
+  }
+
   def withInlineCaching[T](entry: String,
                         driver: Driver,
                         iterations: Int,
@@ -20,7 +55,19 @@ abstract class InlineCachingSpec extends BenchmarkSpec {
                                         .withProfileDispatchInfo(Some(out)))
 
     val configForBenchmarking =
-      (out: File) => configFn andThen (_.withProfileDispatchInfo(Some(out)))
+      (out: File) => {
+        val parsedMap: Map[Int, Set[Int]] =
+          out match {
+            case f if f.exists =>
+              optimizer.analysis.DispatchInfoParser(scala.io.Source.fromFile(f).mkString).mapValues(_.toSet).filter {
+                case (_, vs) => vs.size <= 4
+              }
+                case _ => Map.empty
+          }
+        val solution = optimizer.analysis.Solver.solveFromProfiling(parsedMap)
+        configFn andThen (_.withProfileDispatchInfo(Some(out))
+                           .withTypeAssignments(solution))
+      }
 
     val withProfilingConfigs = (configFn: Config => Config) => (cfg: Config) => configFn(cfg.withProfileDispatch(true))
     val dispatchInfo = Files.createTempFile("dispatch", ".txt").toFile()

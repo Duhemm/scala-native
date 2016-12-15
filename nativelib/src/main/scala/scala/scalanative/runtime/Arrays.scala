@@ -38,7 +38,7 @@ sealed abstract class Array[T]
   /** Number of elements of the array. */
   @inline def length: Int =
     // TODO: Update once we support ptr->field
-    !(unpack(this).cast[Ptr[Byte]] + sizeof[Ptr[_]]).cast[Ptr[Int]]
+    !(this.cast[Ptr[Byte]] + sizeof[Ptr[_]]).cast[Ptr[Int]]
 
   /** Size between elements in the array. */
   def stride: CSize

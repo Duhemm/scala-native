@@ -33,9 +33,11 @@ object DispatchInfoParser {
   val dispatchInfo: P[Map[Int, Seq[Int]]] =
     dispatchMethod.rep ~ End map (_.toMap)
 
-  def apply(in: String): Map[Int, Seq[Int]] =
-    dispatchInfo.parse(in) match {
+  def apply(in: String): Map[Int, Seq[Int]] = {
+    val withoutComments = in.lines.filterNot(_.startsWith("#")).mkString("\n")
+    dispatchInfo.parse(withoutComments) match {
       case Parsed.Success(info, _) => info
-      case Parsed.Failure(_, _, _) => Map.empty
+      case Parsed.Failure(_, _, _) => println("Parsing failed"); Map.empty
     }
+  }
 }

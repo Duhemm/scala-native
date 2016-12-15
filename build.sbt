@@ -359,9 +359,9 @@ lazy val sandbox =
     .settings(projectSettings)
     .settings(noPublishSettings)
     .settings(
-      nativeProfileInfo := Some(file("/Users/martin/Desktop/sandbox-out/dispatch.txt")),
-      nativeOptimizerReporter := OptimizerReporter.toDirectory(
-        crossTarget.value)
+      nativeProfileInfo := Some(file("/Users/martin/Desktop/sandbox-out/dispatch.txt"))
+      //nativeOptimizerReporter := OptimizerReporter.toDirectory(
+        //crossTarget.value)
     )
     .enablePlugins(ScalaNativePlugin)
 
