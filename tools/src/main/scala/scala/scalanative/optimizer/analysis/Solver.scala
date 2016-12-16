@@ -36,19 +36,13 @@ object Solver {
         case None =>
           (cs, sol)
         case Some(Seq(a, b)) =>
-          println("No constraint uses both " + a + " and " + b + ". Replace all " + b + " with " + a)
           inner(cs.map(_.subst(b, a)))(sol + (b -> a))
       }
     }
     val (remainingConstraints, substitutions) = inner(constraints)(Map.empty)
     val simplifiedSol = allVariables(remainingConstraints).zipWithIndex.toMap
-    println("Simplified solution: " + simplifiedSol)
-    println("All substitutions:" + substitutions)
 
     combineSols(substitutions.toSeq, simplifiedSol)
-    //substitutions.foldLeft(simplifiedSol) {
-      //case (sol, (b, a)) => sol + (b -> sol(a))
-    //}
   }
 
   private def combineSols[V](substitutions: Seq[(V, V)], simplifiedSol: Map[V, Int]): Map[V, Int] = {
@@ -67,13 +61,6 @@ object Solver {
     val (constraints, freeVariables) = getConstraints(parsedMap)
     val solution =
       (freeVariables.map(v => v -> 0).toMap ++ solve(constraints)).withDefaultValue(-1)
-    println("#" * 181)
-    println("All constraints: ")
-    constraints foreach println
-    println("-" * 181)
-    println("Solution:")
-    println(solution)
-    println("#" * 181)
     val assignments = parsedMap.mapValues(xs => xs.map(solution))
     parsedMap.foreach { case (k, vs) => assert(vs.size == assignments(k).size) }
     solution

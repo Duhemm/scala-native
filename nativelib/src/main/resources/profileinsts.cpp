@@ -55,7 +55,17 @@ extern "C" {
 		insts.insert_occ(12, 1);
 	}
 
+        void log_dispatch_miss() {
+		insts.insert_occ(13, 1);
+	}
+
+        void log_miss_info(long readPtr, void* origPtr, int key) {
+            fprintf(stdout, "MISS: Read %lu in %p at %d\n", readPtr, origPtr, key);
+            fflush(stdout);
+        }
+
 	void profile_insts_dump() {
 		insts.print(stdout);
 	}
+
 }

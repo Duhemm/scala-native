@@ -4,7 +4,7 @@ import java.lang.System.exit
 
 object Main {
   def main(args: Array[String]): Unit = {
-    val benchmarks = Discover.discovered
+    val benchmarks = Seq(new richards.RichardsBenchmark()) //Discover.discovered
 
     val format = args.lift(0).map(Format(_)).getOrElse(TextFormat)
     val results = benchmarks.map { bench =>

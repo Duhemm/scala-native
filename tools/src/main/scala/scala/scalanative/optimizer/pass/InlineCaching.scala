@@ -40,7 +40,6 @@ class InlineCaching(config: tools.Config,
         case clss: Class =>
           (clss.parentName.flatMap(top.classWithName) +:
             clss.traitNames.reverse.map(top.traitWithName)).flatten
-
         case trt: Trait =>
           trt.traitNames.reverse.flatMap(top.traitWithName)
 
@@ -228,7 +227,7 @@ class InlineCaching(config: tools.Config,
     splitAt(isVirtualDispatch)(_.sliding(2).toSeq)(reuseLast)(block) match {
       case Some(
           (init,
-           Seq(inst @ Let(n, Op.Method(packedObj, MethodRef(cls: Class, meth))),
+           Seq(inst @ Let(n, Op.Method(packedObj, ref @ MethodRef(cls, meth))),
                Let(_, call @ Op.Call(resty, ptr, args))),
            merge)) =>
         val reuse: Seq[Let] => Seq[Val.Local] = lets =>
@@ -243,70 +242,62 @@ class InlineCaching(config: tools.Config,
 
         dispatchInfo getOrElse (key.##, Seq()) flatMap (top classWithId _) match {
           case allCandidates if allCandidates.nonEmpty && allCandidates.forall(c => config.typeAssignments(c.id) >= 0) =>
-              println("-" * 181)
-              println("Doing some crazy stuff at " + key + " (" + key.## + ")")
-              println("Because all candidates have type info in their pointer:")
-              allCandidates foreach { c => println("--> " + config.typeAssignments(c.id) + " <--- " + c) }
-              println("-" * 181)
+              //println("-" * 181)
+              //println("Doing some crazy stuff at " + key + " (" + key.## + ")")
+              //println("Because all candidates have type info in their pointer:")
+              //allCandidates foreach { c => println("--> " + config.typeAssignments(c.id) + " <--- " + c) }
+              //println("-" * 181)
               try {
-              // We don't inline calls to all candidates, only the most frequent for
-              // performance.
-              val candidates = allCandidates take maxCandidates
+                // We don't inline calls to all candidates, only the most frequent for
+                // performance.
+                val candidates = allCandidates //take maxCandidates
 
-              val obj = Val.Local(fresh(), Type.Ptr)
-              val value = Val.Local(fresh(), Type.I64)
-              val loadStuff: Seq[Inst] =
-                unpacked(packedObj) {
-                  case (v, o) =>
-                    Seq(Let(obj.name, Op.Copy(o)),
+                val obj = Val.Local(fresh(), Type.Ptr)
+                val value = Val.Local(fresh(), Type.I64)
+                val loadStuff: Seq[Inst] =
+                  unpacked(packedObj) {
+                    case (v, o) =>
+                      Seq(Let(obj.name, Op.Copy(o)),
                         Let(value.name, Op.Copy(v)))
+                  }
+
+                // The blocks that give the address for an inlined call
+                val staticBlocks: Seq[Block] =
+                  candidates map (makeStaticBlock2(meth, call, _)(merge.name))
+
+                // The type comparisons. The argument is the block to go to if the
+                // type test fails.
+                val typeComparisons: Seq[Local => Block] =
+                  staticBlocks zip candidates map {
+                    case (block, clss) =>
+                      makeTypeComparison(value, Val.I64(config.typeAssignments(clss.id).toLong), block.name)
+                  }
+
+                // If all type tests fail, we fallback to virtual dispatch.
+                val fallback: Block = {
+                  val methptr = Val.Local(fresh(), Type.Ptr)
+                  val newCall = Let(call.copy(ptr = methptr))
+                  Block(fresh(),
+                    Nil,
+                    Seq(
+                      //Let(Op.Call(log_miss_infoSig, log_miss_info, Seq(value, packedObj, Val.I32(key.##)))),
+                      Let(methptr.name, Op.Method(packedObj, ref)),
+                      newCall,
+                      Inst.Jump(
+                        Next.Label(merge.name,
+                          Seq(Val.Local(newCall.name, call.resty))))
+                      )
+                    )
                 }
 
-              // The blocks that give the address for an inlined call
-              val staticBlocks: Seq[Block] =
-                candidates map (makeStaticBlock2(meth, call, _)(merge.name))
+                // Execute start, load the typeid and jump to the first type test.
+                val start: Local => Block = typeComp =>
+                  init.copy(
+                    insts = init.insts ++ loadStuff :+ Inst.Jump(Next(typeComp)))
 
-              // The type comparisons. The argument is the block to go to if the
-              // type test fails.
-              val typeComparisons: Seq[Local => Block] =
-                staticBlocks zip candidates map {
-                  case (block, clss) =>
-                    makeTypeComparison(value, Val.I64(config.typeAssignments(clss.id).toLong), block.name)
-                }
-
-              // If all type tests fail, we fallback to virtual dispatch.
-              val fallback: Block = {
-                val typeptr    = Val.Local(fresh(), Type.Ptr)
-                val methptrptr = Val.Local(fresh(), Type.Ptr)
-                val methptr    = Val.Local(fresh(), Type.Ptr)
-                val newCall    = Let(call.copy(ptr = methptr))
-
-                Block(fresh(),
-                      Nil,
-                      Seq(
-                        Let(typeptr.name, Op.Load(Type.Ptr, obj)),
-                        Let(methptrptr.name,
-                            Op.Elem(cls.typeStruct,
-                                    typeptr,
-                                    Seq(Val.I32(0),
-                                        Val.I32(2), // index of vtable in type struct
-                                        Val.I32(meth.vindex)))),
-                        Let(methptr.name, Op.Load(Type.Ptr, methptrptr)),
-                        newCall,
-                        Inst.Jump(
-                          Next.Label(merge.name,
-                                     Seq(Val.Local(newCall.name, call.resty))))
-                      ))
-              }
-
-              // Execute start, load the typeid and jump to the first type test.
-              val start: Local => Block = typeComp =>
-                init.copy(
-                  insts = init.insts ++ loadStuff :+ Inst.Jump(Next(typeComp)))
-
-              linkBlocks(start +: typeComparisons)(fallback) ++
-                staticBlocks ++
-                addInlineCaching(enclosingDefn)(merge)
+                  linkBlocks(start +: typeComparisons)(fallback) ++
+                  staticBlocks ++
+                  addInlineCaching(enclosingDefn)(merge)
             } catch {
               case th: Throwable =>
                 println(th.getMessage)
@@ -342,27 +333,39 @@ class InlineCaching(config: tools.Config,
 
               // If all type tests fail, we fallback to virtual dispatch.
               val fallback: Block = {
-                val methptrptr = Val.Local(fresh(), Type.Ptr)
-                val methptr    = Val.Local(fresh(), Type.Ptr)
-                val newCall    = Let(call.copy(ptr = methptr))
-
+                val methptr = Val.Local(fresh(), Type.Ptr)
+                val newCall = Let(call.copy(ptr = methptr))
                 Block(fresh(),
                       Nil,
                       Seq(
-                        Let(methptrptr.name,
-                            Op.Elem(cls.typeStruct,
-                                    typeptr,
-                                    Seq(Val.I32(0),
-                                        Val.I32(2), // index of vtable in type struct
-                                        Val.I32(meth.vindex)))),
-                        Let(methptr.name, Op.Load(Type.Ptr, methptrptr)),
+                        //Let(Op.Call(log_dispatch_missSig, log_dispatch_miss, Nil)),
+                        Let(methptr.name, Op.Method(packedObj, ref)),
                         newCall,
                         Inst.Jump(
                           Next.Label(merge.name,
                                      Seq(Val.Local(newCall.name, call.resty))))
-                      ))
-              }
+                      )
+                )
+                //val methptrptr = Val.Local(fresh(), Type.Ptr)
+                //val methptr    = Val.Local(fresh(), Type.Ptr)
+                //val newCall    = Let(call.copy(ptr = methptr))
 
+                //Block(fresh(),
+                      //Nil,
+                      //Seq(
+                        //Let(methptrptr.name,
+                            //Op.Elem(cls.typeStruct,
+                                    //typeptr,
+                                    //Seq(Val.I32(0),
+                                        //Val.I32(2), // index of vtable in type struct
+                                        //Val.I32(meth.vindex)))),
+                        //Let(methptr.name, Op.Load(Type.Ptr, methptrptr)),
+                        //newCall,
+                        //Inst.Jump(
+                          //Next.Label(merge.name,
+                                     //Seq(Val.Local(newCall.name, call.resty))))
+                      //))
+              }
               // Execute start, load the typeid and jump to the first type test.
               val start: Local => Block = typeComp =>
                 init.copy(
@@ -400,8 +403,18 @@ object InlineCaching extends PassCompanion {
   val log_improvedDecl =
     Defn.Declare(Attrs.None, log_improved.name, log_improvedSig)
 
+  val log_dispatch_missSig = Type.Function(Seq(), Type.Void)
+  val log_dispatch_miss    = Val.Global(Global.Top("log_dispatch_miss"), Type.Ptr)
+  val log_dispatch_missDecl =
+    Defn.Declare(Attrs.None, log_dispatch_miss.name, log_dispatch_missSig)
+
+  val log_miss_infoSig = Type.Function(Seq(Arg(Type.I64), Arg(Type.Ptr), Arg(Type.I32)), Type.Void)
+  val log_miss_info    = Val.Global(Global.Top("log_miss_info"), Type.Ptr)
+  val log_miss_infoDecl =
+    Defn.Declare(Attrs.None, log_miss_info.name, log_miss_infoSig)
+
   override def injects =
-    Seq(log_improvedDecl)
+    Seq(log_improvedDecl, log_dispatch_missDecl, log_miss_infoDecl)
 
   override def apply(config: tools.Config, top: Top) =
     config.profileDispatchInfo match {
