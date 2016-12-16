@@ -419,15 +419,17 @@ lazy val testingCompiler =
     .dependsOn(testingCompilerInterface, nativelib)
 
 commands += Command.command("bench") { state =>
-  "set nativeProfileDispatch in benchmarks := false" ::
+  IO.withTemporaryFile("dispatch", ".txt") { f =>
+    "set nativeProfileDispatch in benchmarks := false" ::
     "set nativeProfileInfo in benchmarks := None" ::
-      "benchmarks/run" ::
-          "set nativeProfileDispatch in benchmarks := true" ::
-            """set nativeProfileInfo in benchmarks := Some(file("/Users/martin/Desktop/bench-dump/dispatch.txt"))""" ::
-              "benchmarks/run" ::
-                "set nativeProfileDispatch in benchmarks := false" ::
-                    "benchmarks/run" ::
-                       state
+    "benchmarks/run" ::
+    "set nativeProfileDispatch in benchmarks := true" ::
+    s"""set nativeProfileInfo in benchmarks := Some(file("${f.getAbsolutePath}"))""" ::
+    "benchmarks/run" ::
+    "set nativeProfileDispatch in benchmarks := false" ::
+    "benchmarks/run" ::
+    state
+  }
 }
 
 commands += Command.command("benchCandidates") { state =>

@@ -98,12 +98,7 @@ object Config {
     def withInlineCachingMaxCandidates(value: Int): Config =
       copy(inlineCachingMaxCandidates = value)
 
-    def withTypeAssignments(value: Map[Int, Int]): Config = {
-      println("#" * 181)
-      println("Type assignments are:")
-      value foreach println
-      println("#" * 181)
+    def withTypeAssignments(value: Map[Int, Int]): Config =
       copy(typeAssignments = value)
-    }
   }
 }
