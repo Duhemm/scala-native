@@ -30,10 +30,12 @@ class AllocLowering(implicit fresh: Fresh, top: Top) extends Pass {
 
     case Let(n, Op.Classalloc(ClassRef(cls))) =>
       val size = Val.Local(fresh(), Type.I64)
+      val ptr  = Val.Local(fresh(), Type.Ptr)
 
       Seq(
         Let(size.name, Op.Sizeof(cls.classStruct)),
-        Let(n, Op.Call(allocSig, alloc, Seq(cls.typeConst, size)))
+        Let(ptr.name, Op.Call(allocSig, alloc, Seq(cls.typeConst, size))),
+        Let(n, Op.Pack(Val.I16(cls.id.toShort), ptr))
       )
   }
 

@@ -44,6 +44,8 @@ object Driver {
         pass.TryLowering,
         pass.AllocLowering,
         pass.SizeofLowering,
+        pass.PackUnpackLowering,
+        pass.RemovePackedVal,
         pass.CopyPropagation,
         pass.DeadCodeElimination
       ))

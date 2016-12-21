@@ -46,13 +46,15 @@ class StringLowering(implicit top: Top) extends Pass {
         case _                        => util.unreachable
       }
 
-      Val.Const(Val.Struct(Global.None, StringCls.typeConst +: fieldValues))
+      Val.Packed(
+        StringCls.id.toShort,
+        Val.Const(Val.Struct(Global.None, StringCls.typeConst +: fieldValues)))
   }
 }
 
 object StringLowering extends PassCompanion {
   val StringName               = Rt.String.name
-  val StringValueName          = StringName member "value" tag "field"
+  val StringValueName          = StringName member "rawValue" tag "field"
   val StringOffsetName         = StringName member "offset" tag "field"
   val StringCountName          = StringName member "count" tag "field"
   val StringCachedHashCodeName = StringName member "cachedHashCode" tag "field"

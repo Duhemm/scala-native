@@ -15,7 +15,7 @@ class IsLowering(implicit fresh: Fresh, top: Top) extends Pass {
     case Let(n, Op.Is(_, Val.Zero(_))) =>
       Seq(Let(n, Op.Copy(Val.False)))
 
-    case isInst @ Let(n, Op.Is(ty, obj)) =>
+    case isInst @ Let(n, Op.Is(ty, packedObj)) =>
       val isNullV = Val.Local(fresh(), Type.Bool)
       val isIsV   = Val.Local(fresh(), Type.Bool)
 
@@ -25,20 +25,21 @@ class IsLowering(implicit fresh: Fresh, top: Top) extends Pass {
 
       val thenResultV = Val.Local(fresh(), Type.Bool)
       val elseResultV = Val.Local(fresh(), Type.Bool)
-
-      Seq(
-        // if
-        Let(isNullV.name,
-            Op.Comp(Comp.Ieq, Type.Ptr, obj, Val.Zero(Type.Ptr))),
-        Inst.If(isNullV, Next(thenL), Next(elseL)),
-        // then
-        Inst.Label(thenL, Seq.empty),
-        Let(thenResultV.name, Op.Copy(Val.False)),
-        Inst.Jump(Next.Label(contL, Seq(thenResultV))),
-        // else
-        Inst.Label(elseL, Seq.empty)
-      ) ++
-        doEliminateIs(Let(elseResultV.name, Op.Is(ty, obj))) ++
+      val obj         = Val.Local(fresh(), Type.Ptr)
+      val id          = Val.Local(fresh(), Type.I16)
+      Seq(Let(obj.name, Op.UnpackPtr(packedObj)),
+          Let(id.name, Op.UnpackId(packedObj)),
+          // if
+          Let(isNullV.name,
+              Op.Comp(Comp.Ieq, Type.Ptr, obj, Val.Zero(Type.Ptr))),
+          Inst.If(isNullV, Next(thenL), Next(elseL)),
+          // then
+          Inst.Label(thenL, Seq.empty),
+          Let(thenResultV.name, Op.Copy(Val.False)),
+          Inst.Jump(Next.Label(contL, Seq(thenResultV))),
+          // else
+          Inst.Label(elseL, Seq.empty)) ++
+        doEliminateIs(Let(elseResultV.name, Op.Is(ty, obj)), id) ++
         Seq(Inst.Jump(Next.Label(contL, Seq(elseResultV))),
             // cont
             Inst.Label(contL, Seq(isIsV)),
@@ -46,52 +47,45 @@ class IsLowering(implicit fresh: Fresh, top: Top) extends Pass {
     case other => Seq(other)
   }
 
-  private def doEliminateIs: PartialFunction[Inst, Seq[Inst]] = {
-    case Let(n, Op.Is(ClassRef(cls), obj)) if cls.range.length == 1 =>
-      val typeptr = Val.Local(fresh(), Type.Ptr)
+  private def doEliminateIs(inst: Inst.Let, unpackedId: Val): Seq[Inst] =
+    inst match {
+      case Let(n, Op.Is(ClassRef(cls), obj)) if cls.range.length == 1 =>
+        Seq(
+          Let(n,
+              Op.Comp(Comp.Ieq, Type.I16, unpackedId, Val.I16(cls.id.toShort)))
+        )
 
-      Seq(
-        Let(typeptr.name, Op.Load(Type.Ptr, obj)),
-        Let(n, Op.Comp(Comp.Ieq, Type.Ptr, typeptr, cls.typeConst))
-      )
+      case Let(n, Op.Is(ClassRef(cls), obj)) =>
+        val ge = Val.Local(fresh(), Type.Bool)
+        val le = Val.Local(fresh(), Type.Bool)
 
-    case Let(n, Op.Is(ClassRef(cls), obj)) =>
-      val typeptr = Val.Local(fresh(), Type.Ptr)
-      val idptr   = Val.Local(fresh(), Type.Ptr)
-      val id      = Val.Local(fresh(), Type.I32)
-      val ge      = Val.Local(fresh(), Type.Bool)
-      val le      = Val.Local(fresh(), Type.Bool)
+        Seq(
+          Let(ge.name,
+              Op.Comp(Comp.Sle,
+                      Type.I16,
+                      Val.I16(cls.range.start.toShort),
+                      unpackedId)),
+          Let(le.name,
+              Op.Comp(Comp.Sle,
+                      Type.I16,
+                      unpackedId,
+                      Val.I16(cls.range.end.toShort))),
+          Let(n, Op.Bin(Bin.And, Type.Bool, ge, le))
+        )
 
-      Seq(
-        Let(typeptr.name, Op.Load(Type.Ptr, obj)),
-        Let(idptr.name,
-            Op.Elem(Rt.Type, typeptr, Seq(Val.I32(0), Val.I32(0)))),
-        Let(id.name, Op.Load(Type.I32, idptr)),
-        Let(ge.name,
-            Op.Comp(Comp.Sle, Type.I32, Val.I32(cls.range.start), id)),
-        Let(le.name, Op.Comp(Comp.Sle, Type.I32, id, Val.I32(cls.range.end))),
-        Let(n, Op.Bin(Bin.And, Type.Bool, ge, le))
-      )
+      case Let(n, Op.Is(TraitRef(trt), obj)) =>
+        val boolptr = Val.Local(fresh(), Type.Ptr)
 
-    case Let(n, Op.Is(TraitRef(trt), obj)) =>
-      val typeptr = Val.Local(fresh(), Type.Ptr)
-      val idptr   = Val.Local(fresh(), Type.Ptr)
-      val id      = Val.Local(fresh(), Type.I32)
-      val boolptr = Val.Local(fresh(), Type.Ptr)
+        Seq(
+          Let(boolptr.name,
+              Op.Elem(top.instanceTy,
+                      top.instanceVal,
+                      Seq(Val.I32(0), unpackedId, Val.I32(trt.id)))),
+          Let(n, Op.Load(Type.Bool, boolptr))
+        )
+      case other => Seq(other)
+    }
 
-      Seq(
-        Let(typeptr.name, Op.Load(Type.Ptr, obj)),
-        Let(idptr.name,
-            Op.Elem(Rt.Type, typeptr, Seq(Val.I32(0), Val.I32(0)))),
-        Let(id.name, Op.Load(Type.I32, idptr)),
-        Let(boolptr.name,
-            Op.Elem(top.instanceTy,
-                    top.instanceVal,
-                    Seq(Val.I32(0), id, Val.I32(trt.id)))),
-        Let(n, Op.Load(Type.Bool, boolptr))
-      )
-    case other => Seq(other)
-  }
 }
 
 object IsLowering extends PassCompanion {

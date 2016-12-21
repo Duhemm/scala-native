@@ -29,6 +29,9 @@ sealed abstract class Op {
     case Op.Closure(ty, _, _) => ty
     case Op.Box(ty, _)        => ty
     case Op.Unbox(ty, _)      => Type.unbox(ty)
+    case Op.Pack(_, _)        => Type.Ptr
+    case Op.UnpackId(_)       => Type.I16
+    case Op.UnpackPtr(_)      => Type.Ptr
 
   }
 }
@@ -61,5 +64,8 @@ object Op {
   final case class Closure(ty: Type, fun: Val, captures: Seq[Val]) extends Op
   final case class Box(ty: Type, obj: Val)                         extends Op
   final case class Unbox(ty: Type, obj: Val)                       extends Op
+  final case class Pack(value: Val, ptr: Val)                      extends Op
+  final case class UnpackId(packedPtr: Val)                        extends Op
+  final case class UnpackPtr(packedPtr: Val)                       extends Op
 
 }

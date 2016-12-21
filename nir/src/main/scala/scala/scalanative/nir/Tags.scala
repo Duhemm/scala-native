@@ -156,6 +156,9 @@ object Tags {
   final val ClosureOp    = 1 + SizeofOp
   final val BoxOp        = 1 + ClosureOp
   final val UnboxOp      = 1 + BoxOp
+  final val PackOp       = 1 + UnboxOp
+  final val UnpackPtrOp  = 1 + PackOp
+  final val UnpackIdOp   = 1 + UnpackPtrOp
 
   // Types
 
@@ -204,6 +207,7 @@ object Tags {
   final val UnitVal   = 1 + GlobalVal
   final val ConstVal  = 1 + UnitVal
   final val StringVal = 1 + ConstVal
+  final val PackedVal = 1 + StringVal
 
   // Argument Passing Conventions
 

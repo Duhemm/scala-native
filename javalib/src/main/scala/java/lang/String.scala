@@ -7,14 +7,24 @@ import java.util.regex._
 import java.nio._
 import java.nio.charset._
 
+import scala.scalanative.runtime
+
 final class _String()
     extends Serializable
     with Comparable[_String]
     with CharSequence {
-  protected[_String] var value: Array[Char]  = new Array[Char](0)
-  protected[_String] var offset: Int         = 0
-  protected[_String] var count: Int          = 0
-  protected[_String] var cachedHashCode: Int = _
+  private var rawValue: Array[Char] = new Array[Char](0)
+  // Some char arrays are never initialized and come from the constant pool, and may not be tagged.
+  // To make sure we only use tagged values, we tag the array before returning it.
+  protected[_String] def value: Array[Char] = {
+    val ptr = runtime.unpackedPtr(rawValue)
+    val id  = (!runtime.typeof[runtime.CharArray]).id.toShort
+    runtime.packed(id, ptr).asInstanceOf[Array[Char]]
+  }
+  protected[_String] def value_=(v: Array[Char]) = rawValue = v
+  protected[_String] var offset: Int             = 0
+  protected[_String] var count: Int              = 0
+  protected[_String] var cachedHashCode: Int     = _
 
   def this(data: Array[scala.Byte], high: Int, start: Int, length: Int) = {
     this()

@@ -5,10 +5,10 @@ import scala.scalanative.runtime
 
 class _Object {
   def _equals(that: _Object): scala.Boolean =
-    this.cast[Word] == that.cast[Word]
+    runtime.rawPointer(this) == runtime.rawPointer(that)
 
   def _hashCode(): scala.Int =
-    this.cast[Word].hashCode
+    runtime.rawPointer(this).hashCode
 
   def _toString(): String =
     getClass.getName + "@" + Integer.toHexString(hashCode)

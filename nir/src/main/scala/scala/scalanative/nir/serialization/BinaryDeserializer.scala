@@ -244,6 +244,9 @@ final class BinaryDeserializer(_buffer: => ByteBuffer) {
     case T.ClosureOp    => Op.Closure(getType, getVal, getVals)
     case T.BoxOp        => Op.Box(getType, getVal)
     case T.UnboxOp      => Op.Unbox(getType, getVal)
+    case T.PackOp       => Op.Pack(getVal, getVal)
+    case T.UnpackPtrOp  => Op.UnpackPtr(getVal)
+    case T.UnpackIdOp   => Op.UnpackId(getVal)
   }
 
   private def getParams(): Seq[Val.Local] = getSeq(getParam)
@@ -302,5 +305,6 @@ final class BinaryDeserializer(_buffer: => ByteBuffer) {
     case T.UnitVal   => Val.Unit
     case T.ConstVal  => Val.Const(getVal)
     case T.StringVal => Val.String(getString)
+    case T.PackedVal => Val.Packed(getShort, getVal)
   }
 }

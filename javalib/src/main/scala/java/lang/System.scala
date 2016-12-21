@@ -3,7 +3,7 @@ package java.lang
 import java.io.{InputStream, PrintStream}
 import java.util.Properties
 import scala.scalanative.native._
-import scala.scalanative.runtime.time
+import scala.scalanative.runtime.{rawPointer, time}
 
 final class System private ()
 
@@ -21,7 +21,7 @@ object System {
   }
 
   def identityHashCode(x: Object): scala.Int =
-    x.cast[Word].hashCode
+    rawPointer(x).hashCode
 
   def getenv(name: String): String                      = ???
   def clearProperty(key: String): String                = ???

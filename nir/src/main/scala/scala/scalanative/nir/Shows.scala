@@ -142,6 +142,12 @@ object Shows {
       sh"box[$ty] $obj"
     case Op.Unbox(ty, obj) =>
       sh"unbox[$ty] $obj"
+    case Op.Pack(value, ptr) =>
+      sh"pack $value $ptr"
+    case Op.UnpackId(packedPtr) =>
+      sh"unpackvalue $packedPtr"
+    case Op.UnpackPtr(packedPtr) =>
+      sh"unpackptr $packedPtr"
   }
 
   implicit val showBin: Show[Bin] = Show {
@@ -219,9 +225,10 @@ object Shows {
     case Val.Local(name, ty)             => sh"$name: $ty"
     case Val.Global(name, ty)            => sh"$name[$ty]"
 
-    case Val.Unit      => "unit"
-    case Val.Const(v)  => sh"const $v"
-    case Val.String(v) => "\"" + escapeNewLine(escapeQuotes(v)) + "\""
+    case Val.Unit          => "unit"
+    case Val.Const(v)      => sh"const $v"
+    case Val.String(v)     => "\"" + escapeNewLine(escapeQuotes(v)) + "\""
+    case Val.Packed(id, v) => sh"packed $id, $v"
   }
 
   implicit val showDefns: Show[Seq[Defn]] = Show { defns =>

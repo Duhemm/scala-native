@@ -299,11 +299,14 @@ object GlobalValueNumbering extends PassCompanion {
         case Copy(value)                => Seq("Copy", value)
         case Closure(ty, fun, captures) => "Closure" +: ty +: fun +: captures
 
-        case Classalloc(name) => Seq("Classalloc", name)
-        case Module(name)     => Seq("Module", name)
-        case Sizeof(ty)       => Seq("Sizeof", ty)
-        case Box(code, obj)   => Seq("Box", code.toString, obj)
-        case Unbox(code, obj) => Seq("Unbox", code.toString, obj)
+        case Classalloc(name)     => Seq("Classalloc", name)
+        case Module(name)         => Seq("Module", name)
+        case Sizeof(ty)           => Seq("Sizeof", ty)
+        case Box(code, obj)       => Seq("Box", code.toString, obj)
+        case Unbox(code, obj)     => Seq("Unbox", code.toString, obj)
+        case Pack(value, ptr)     => Seq("Pack", value, ptr)
+        case UnpackId(packedPtr)  => Seq("UnpackId", packedPtr)
+        case UnpackPtr(packedPtr) => Seq("UnpackPtr", packedPtr)
       }
 
       combineHashes(opFields.map(this.apply))

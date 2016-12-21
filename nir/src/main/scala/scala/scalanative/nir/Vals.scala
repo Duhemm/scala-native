@@ -22,9 +22,10 @@ sealed abstract class Val {
     case Val.Local(_, ty)       => ty
     case Val.Global(_, ty)      => ty
 
-    case Val.Unit      => Type.Unit
-    case Val.Const(_)  => Type.Ptr
-    case Val.String(_) => Rt.String
+    case Val.Unit         => Type.Unit
+    case Val.Const(_)     => Type.Ptr
+    case Val.String(_)    => Rt.String
+    case Val.Packed(_, v) => v.ty
   }
 }
 object Val {
@@ -68,4 +69,5 @@ object Val {
   final case object Unit                           extends Val
   final case class Const(value: Val)               extends Val
   final case class String(value: java.lang.String) extends Val
+  final case class Packed(id: Short, value: Val)   extends Val
 }

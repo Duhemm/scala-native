@@ -1,4 +1,4 @@
-// ###sourceLocation(file: "/root/scala-native/nativelib/src/main/scala/scala/scalanative/runtime/Arrays.scala.gyb", line: 1)
+// ###sourceLocation(file: "/Users/martin/Documents/Projects/Duhemm/scala-native/nativelib/src/main/scala/scala/scalanative/runtime/Arrays.scala.gyb", line: 1)
 package scala.scalanative
 package runtime
 
@@ -23,7 +23,7 @@ import scala.annotation.unchecked.uncheckedStable
 
 @struct class ArrayHeader(val info: Ptr[_], val length: Int)
 
-// ###sourceLocation(file: "/root/scala-native/nativelib/src/main/scala/scala/scalanative/runtime/Arrays.scala.gyb", line: 29)
+// ###sourceLocation(file: "/Users/martin/Documents/Projects/Duhemm/scala-native/nativelib/src/main/scala/scala/scalanative/runtime/Arrays.scala.gyb", line: 29)
 
 sealed abstract class Array[T]
     extends java.io.Serializable
@@ -32,7 +32,7 @@ sealed abstract class Array[T]
   /** Number of elements of the array. */
   @inline def length: Int =
     // TODO: Update once we support ptr->field
-    !(this.cast[Ptr[Byte]] + sizeof[Ptr[_]]).cast[Ptr[Int]]
+    !(unpackedPtr(this).cast[Ptr[Byte]] + sizeof[Ptr[_]]).cast[Ptr[Int]]
 
   /** Size between elements in the array. */
   def stride: CSize
@@ -103,18 +103,18 @@ object Array {
     val arrsize = sizeof[ArrayHeader] + stride * length
     val arr     = GC.malloc(arrsize)
     `llvm.memcpy.p0i8.p0i8.i64`(arr.cast[Ptr[Byte]],
-                                from.cast[Ptr[Byte]],
+                                unpackedPtr(from),
                                 arrsize,
                                 1,
                                 false)
     arr
   }
 
-  @inline def alloc(length: Int, arrinfo: Ptr[Type], stride: CSize): Ptr[_] = {
+  @inline def alloc(length: Int, arrinfo: Ptr[Type], stride: CSize): AnyRef = {
     val arrsize = sizeof[ArrayHeader] + stride * length
     val arr     = runtime.alloc(arrinfo, arrsize)
     // set the length
-    !(arr.cast[Ptr[Byte]] + sizeof[Ptr[_]]).cast[Ptr[Int]] = length
+    !(unpackedPtr(arr) + sizeof[Ptr[_]]).cast[Ptr[Int]] = length
     arr
   }
 }
@@ -126,19 +126,19 @@ object PrimitiveArray {
     val arrsize = sizeof[ArrayHeader] + stride * length
     val arr     = GC.malloc_atomic(arrsize)
     `llvm.memcpy.p0i8.p0i8.i64`(arr.cast[Ptr[Byte]],
-                                src.cast[Ptr[Byte]],
+                                unpackedPtr(src),
                                 arrsize,
                                 1,
                                 false)
     arr
   }
 
-  @inline def alloc(length: Int, arrinfo: Ptr[Type], stride: CSize): Ptr[_] = {
+  @inline def alloc(length: Int, arrinfo: Ptr[Type], stride: CSize): AnyRef = {
     val arrsize = sizeof[ArrayHeader] + stride * length
     // Primitive arrays don't contain pointers
     val arr = runtime.allocAtomic(arrinfo, arrsize)
     // set the length
-    !(arr.cast[Ptr[Byte]] + sizeof[Ptr[_]]).cast[Ptr[Int]] = length
+    !(unpackedPtr(arr) + sizeof[Ptr[_]]).cast[Ptr[Int]] = length
     arr
   }
 }
@@ -151,7 +151,7 @@ final class ObjectArray private () extends Array[Object] {
     if (i < 0 || i >= length)
       throw new IndexOutOfBoundsException(i.toString)
     else {
-      val first = this.cast[Ptr[Byte]] + sizeof[ArrayHeader]
+      val first = unpackedPtr(this).cast[Ptr[Byte]] + sizeof[ArrayHeader]
       val ith   = first + stride * i
 
       ith.cast[Ptr[Object]]
@@ -161,8 +161,11 @@ final class ObjectArray private () extends Array[Object] {
 
   @inline def update(i: Int, value: Object): Unit = !at(i) = value
 
-  @inline protected override def clone(): ObjectArray =
-    Array.helperClone(this, length, sizeof[Object]).cast[ObjectArray]
+  @inline protected override def clone(): ObjectArray = {
+    val id    = (!typeof[ObjectArray]).id
+    val clone = Array.helperClone(this, length, sizeof[Object]).cast[Ptr[Byte]]
+    packed(id.toShort, clone).cast[ObjectArray]
+  }
 }
 
 object ObjectArray {
@@ -170,7 +173,7 @@ object ObjectArray {
     Array.alloc(length, typeof[ObjectArray], sizeof[Object]).cast[ObjectArray]
 }
 
-// ###sourceLocation(file: "/root/scala-native/nativelib/src/main/scala/scala/scalanative/runtime/Arrays.scala.gyb", line: 152)
+// ###sourceLocation(file: "/Users/martin/Documents/Projects/Duhemm/scala-native/nativelib/src/main/scala/scala/scalanative/runtime/Arrays.scala.gyb", line: 155)
 
 final class BooleanArray private () extends Array[Boolean] {
   @inline def stride: CSize =
@@ -180,7 +183,7 @@ final class BooleanArray private () extends Array[Boolean] {
     if (i < 0 || i >= length)
       throw new IndexOutOfBoundsException(i.toString)
     else {
-      val first = this.cast[Ptr[Byte]] + sizeof[ArrayHeader]
+      val first = unpackedPtr(this).cast[Ptr[Byte]] + sizeof[ArrayHeader]
       val ith   = first + stride * i
 
       ith.cast[Ptr[Boolean]]
@@ -190,10 +193,12 @@ final class BooleanArray private () extends Array[Boolean] {
 
   @inline def update(i: Int, value: Boolean): Unit = !at(i) = value
 
-  @inline protected override def clone(): BooleanArray =
-    PrimitiveArray
-      .helperClone(this, length, sizeof[Boolean])
-      .cast[BooleanArray]
+  @inline protected override def clone(): BooleanArray = {
+    val id = (!typeof[BooleanArray]).id
+    val clone =
+      PrimitiveArray.helperClone(this, length, sizeof[Boolean]).cast[Ptr[Byte]]
+    packed(id.toShort, clone).cast[BooleanArray]
+  }
 }
 
 object BooleanArray {
@@ -203,7 +208,7 @@ object BooleanArray {
       .cast[BooleanArray]
 }
 
-// ###sourceLocation(file: "/root/scala-native/nativelib/src/main/scala/scala/scalanative/runtime/Arrays.scala.gyb", line: 152)
+// ###sourceLocation(file: "/Users/martin/Documents/Projects/Duhemm/scala-native/nativelib/src/main/scala/scala/scalanative/runtime/Arrays.scala.gyb", line: 155)
 
 final class CharArray private () extends Array[Char] {
   @inline def stride: CSize =
@@ -213,7 +218,7 @@ final class CharArray private () extends Array[Char] {
     if (i < 0 || i >= length)
       throw new IndexOutOfBoundsException(i.toString)
     else {
-      val first = this.cast[Ptr[Byte]] + sizeof[ArrayHeader]
+      val first = unpackedPtr(this).cast[Ptr[Byte]] + sizeof[ArrayHeader]
       val ith   = first + stride * i
 
       ith.cast[Ptr[Char]]
@@ -223,8 +228,12 @@ final class CharArray private () extends Array[Char] {
 
   @inline def update(i: Int, value: Char): Unit = !at(i) = value
 
-  @inline protected override def clone(): CharArray =
-    PrimitiveArray.helperClone(this, length, sizeof[Char]).cast[CharArray]
+  @inline protected override def clone(): CharArray = {
+    val id = (!typeof[CharArray]).id
+    val clone =
+      PrimitiveArray.helperClone(this, length, sizeof[Char]).cast[Ptr[Byte]]
+    packed(id.toShort, clone).cast[CharArray]
+  }
 }
 
 object CharArray {
@@ -234,7 +243,7 @@ object CharArray {
       .cast[CharArray]
 }
 
-// ###sourceLocation(file: "/root/scala-native/nativelib/src/main/scala/scala/scalanative/runtime/Arrays.scala.gyb", line: 152)
+// ###sourceLocation(file: "/Users/martin/Documents/Projects/Duhemm/scala-native/nativelib/src/main/scala/scala/scalanative/runtime/Arrays.scala.gyb", line: 155)
 
 final class ByteArray private () extends Array[Byte] {
   @inline def stride: CSize =
@@ -244,7 +253,7 @@ final class ByteArray private () extends Array[Byte] {
     if (i < 0 || i >= length)
       throw new IndexOutOfBoundsException(i.toString)
     else {
-      val first = this.cast[Ptr[Byte]] + sizeof[ArrayHeader]
+      val first = unpackedPtr(this).cast[Ptr[Byte]] + sizeof[ArrayHeader]
       val ith   = first + stride * i
 
       ith.cast[Ptr[Byte]]
@@ -254,8 +263,12 @@ final class ByteArray private () extends Array[Byte] {
 
   @inline def update(i: Int, value: Byte): Unit = !at(i) = value
 
-  @inline protected override def clone(): ByteArray =
-    PrimitiveArray.helperClone(this, length, sizeof[Byte]).cast[ByteArray]
+  @inline protected override def clone(): ByteArray = {
+    val id = (!typeof[ByteArray]).id
+    val clone =
+      PrimitiveArray.helperClone(this, length, sizeof[Byte]).cast[Ptr[Byte]]
+    packed(id.toShort, clone).cast[ByteArray]
+  }
 }
 
 object ByteArray {
@@ -265,7 +278,7 @@ object ByteArray {
       .cast[ByteArray]
 }
 
-// ###sourceLocation(file: "/root/scala-native/nativelib/src/main/scala/scala/scalanative/runtime/Arrays.scala.gyb", line: 152)
+// ###sourceLocation(file: "/Users/martin/Documents/Projects/Duhemm/scala-native/nativelib/src/main/scala/scala/scalanative/runtime/Arrays.scala.gyb", line: 155)
 
 final class ShortArray private () extends Array[Short] {
   @inline def stride: CSize =
@@ -275,7 +288,7 @@ final class ShortArray private () extends Array[Short] {
     if (i < 0 || i >= length)
       throw new IndexOutOfBoundsException(i.toString)
     else {
-      val first = this.cast[Ptr[Byte]] + sizeof[ArrayHeader]
+      val first = unpackedPtr(this).cast[Ptr[Byte]] + sizeof[ArrayHeader]
       val ith   = first + stride * i
 
       ith.cast[Ptr[Short]]
@@ -285,8 +298,12 @@ final class ShortArray private () extends Array[Short] {
 
   @inline def update(i: Int, value: Short): Unit = !at(i) = value
 
-  @inline protected override def clone(): ShortArray =
-    PrimitiveArray.helperClone(this, length, sizeof[Short]).cast[ShortArray]
+  @inline protected override def clone(): ShortArray = {
+    val id = (!typeof[ShortArray]).id
+    val clone =
+      PrimitiveArray.helperClone(this, length, sizeof[Short]).cast[Ptr[Byte]]
+    packed(id.toShort, clone).cast[ShortArray]
+  }
 }
 
 object ShortArray {
@@ -296,7 +313,7 @@ object ShortArray {
       .cast[ShortArray]
 }
 
-// ###sourceLocation(file: "/root/scala-native/nativelib/src/main/scala/scala/scalanative/runtime/Arrays.scala.gyb", line: 152)
+// ###sourceLocation(file: "/Users/martin/Documents/Projects/Duhemm/scala-native/nativelib/src/main/scala/scala/scalanative/runtime/Arrays.scala.gyb", line: 155)
 
 final class IntArray private () extends Array[Int] {
   @inline def stride: CSize =
@@ -306,7 +323,7 @@ final class IntArray private () extends Array[Int] {
     if (i < 0 || i >= length)
       throw new IndexOutOfBoundsException(i.toString)
     else {
-      val first = this.cast[Ptr[Byte]] + sizeof[ArrayHeader]
+      val first = unpackedPtr(this).cast[Ptr[Byte]] + sizeof[ArrayHeader]
       val ith   = first + stride * i
 
       ith.cast[Ptr[Int]]
@@ -316,8 +333,12 @@ final class IntArray private () extends Array[Int] {
 
   @inline def update(i: Int, value: Int): Unit = !at(i) = value
 
-  @inline protected override def clone(): IntArray =
-    PrimitiveArray.helperClone(this, length, sizeof[Int]).cast[IntArray]
+  @inline protected override def clone(): IntArray = {
+    val id = (!typeof[IntArray]).id
+    val clone =
+      PrimitiveArray.helperClone(this, length, sizeof[Int]).cast[Ptr[Byte]]
+    packed(id.toShort, clone).cast[IntArray]
+  }
 }
 
 object IntArray {
@@ -325,7 +346,7 @@ object IntArray {
     PrimitiveArray.alloc(length, typeof[IntArray], sizeof[Int]).cast[IntArray]
 }
 
-// ###sourceLocation(file: "/root/scala-native/nativelib/src/main/scala/scala/scalanative/runtime/Arrays.scala.gyb", line: 152)
+// ###sourceLocation(file: "/Users/martin/Documents/Projects/Duhemm/scala-native/nativelib/src/main/scala/scala/scalanative/runtime/Arrays.scala.gyb", line: 155)
 
 final class LongArray private () extends Array[Long] {
   @inline def stride: CSize =
@@ -335,7 +356,7 @@ final class LongArray private () extends Array[Long] {
     if (i < 0 || i >= length)
       throw new IndexOutOfBoundsException(i.toString)
     else {
-      val first = this.cast[Ptr[Byte]] + sizeof[ArrayHeader]
+      val first = unpackedPtr(this).cast[Ptr[Byte]] + sizeof[ArrayHeader]
       val ith   = first + stride * i
 
       ith.cast[Ptr[Long]]
@@ -345,8 +366,12 @@ final class LongArray private () extends Array[Long] {
 
   @inline def update(i: Int, value: Long): Unit = !at(i) = value
 
-  @inline protected override def clone(): LongArray =
-    PrimitiveArray.helperClone(this, length, sizeof[Long]).cast[LongArray]
+  @inline protected override def clone(): LongArray = {
+    val id = (!typeof[LongArray]).id
+    val clone =
+      PrimitiveArray.helperClone(this, length, sizeof[Long]).cast[Ptr[Byte]]
+    packed(id.toShort, clone).cast[LongArray]
+  }
 }
 
 object LongArray {
@@ -356,7 +381,7 @@ object LongArray {
       .cast[LongArray]
 }
 
-// ###sourceLocation(file: "/root/scala-native/nativelib/src/main/scala/scala/scalanative/runtime/Arrays.scala.gyb", line: 152)
+// ###sourceLocation(file: "/Users/martin/Documents/Projects/Duhemm/scala-native/nativelib/src/main/scala/scala/scalanative/runtime/Arrays.scala.gyb", line: 155)
 
 final class FloatArray private () extends Array[Float] {
   @inline def stride: CSize =
@@ -366,7 +391,7 @@ final class FloatArray private () extends Array[Float] {
     if (i < 0 || i >= length)
       throw new IndexOutOfBoundsException(i.toString)
     else {
-      val first = this.cast[Ptr[Byte]] + sizeof[ArrayHeader]
+      val first = unpackedPtr(this).cast[Ptr[Byte]] + sizeof[ArrayHeader]
       val ith   = first + stride * i
 
       ith.cast[Ptr[Float]]
@@ -376,8 +401,12 @@ final class FloatArray private () extends Array[Float] {
 
   @inline def update(i: Int, value: Float): Unit = !at(i) = value
 
-  @inline protected override def clone(): FloatArray =
-    PrimitiveArray.helperClone(this, length, sizeof[Float]).cast[FloatArray]
+  @inline protected override def clone(): FloatArray = {
+    val id = (!typeof[FloatArray]).id
+    val clone =
+      PrimitiveArray.helperClone(this, length, sizeof[Float]).cast[Ptr[Byte]]
+    packed(id.toShort, clone).cast[FloatArray]
+  }
 }
 
 object FloatArray {
@@ -387,7 +416,7 @@ object FloatArray {
       .cast[FloatArray]
 }
 
-// ###sourceLocation(file: "/root/scala-native/nativelib/src/main/scala/scala/scalanative/runtime/Arrays.scala.gyb", line: 152)
+// ###sourceLocation(file: "/Users/martin/Documents/Projects/Duhemm/scala-native/nativelib/src/main/scala/scala/scalanative/runtime/Arrays.scala.gyb", line: 155)
 
 final class DoubleArray private () extends Array[Double] {
   @inline def stride: CSize =
@@ -397,7 +426,7 @@ final class DoubleArray private () extends Array[Double] {
     if (i < 0 || i >= length)
       throw new IndexOutOfBoundsException(i.toString)
     else {
-      val first = this.cast[Ptr[Byte]] + sizeof[ArrayHeader]
+      val first = unpackedPtr(this).cast[Ptr[Byte]] + sizeof[ArrayHeader]
       val ith   = first + stride * i
 
       ith.cast[Ptr[Double]]
@@ -407,8 +436,12 @@ final class DoubleArray private () extends Array[Double] {
 
   @inline def update(i: Int, value: Double): Unit = !at(i) = value
 
-  @inline protected override def clone(): DoubleArray =
-    PrimitiveArray.helperClone(this, length, sizeof[Double]).cast[DoubleArray]
+  @inline protected override def clone(): DoubleArray = {
+    val id = (!typeof[DoubleArray]).id
+    val clone =
+      PrimitiveArray.helperClone(this, length, sizeof[Double]).cast[Ptr[Byte]]
+    packed(id.toShort, clone).cast[DoubleArray]
+  }
 }
 
 object DoubleArray {

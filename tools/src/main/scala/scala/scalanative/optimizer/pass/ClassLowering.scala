@@ -29,11 +29,16 @@ class ClassLowering(implicit top: Top, fresh: Fresh) extends Pass {
   }
 
   override def preInst = {
-    case Let(n, Op.Field(obj, FieldRef(cls: Class, fld))) =>
-      val classty = cls.classStruct
+    case Let(n, Op.Field(packedObj, FieldRef(cls: Class, fld))) =>
+      val unpackedPtr = Val.Local(fresh(), Type.Ptr)
+      val classty     = cls.classStruct
 
       Seq(
-        Let(n, Op.Elem(classty, obj, Seq(Val.I32(0), Val.I32(fld.index + 1))))
+        Let(unpackedPtr.name, Op.UnpackPtr(packedObj)),
+        Let(n,
+            Op.Elem(classty,
+                    unpackedPtr,
+                    Seq(Val.I32(0), Val.I32(fld.index + 1))))
       )
   }
 

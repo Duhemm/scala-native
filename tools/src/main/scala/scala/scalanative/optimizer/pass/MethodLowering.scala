@@ -12,12 +12,14 @@ import nir._, Inst.Let
  */
 class MethodLowering(implicit fresh: Fresh, top: Top) extends Pass {
   override def preInst = {
-    case Let(n, Op.Method(obj, MethodRef(cls: Class, meth)))
+    case Let(n, Op.Method(packedObj, MethodRef(cls: Class, meth)))
         if meth.isVirtual =>
       val typeptr    = Val.Local(fresh(), Type.Ptr)
       val methptrptr = Val.Local(fresh(), Type.Ptr)
+      val obj        = Val.Local(fresh(), Type.Ptr)
 
       Seq(
+        Let(obj.name, Op.UnpackPtr(packedObj)),
         Let(typeptr.name, Op.Load(Type.Ptr, obj)),
         Let(methptrptr.name,
             Op.Elem(cls.typeStruct,
@@ -33,17 +35,14 @@ class MethodLowering(implicit fresh: Fresh, top: Top) extends Pass {
         Let(n, Op.Copy(Val.Global(meth.name, Type.Ptr)))
       )
 
-    case Let(n, Op.Method(obj, MethodRef(trt: Trait, meth))) =>
-      val typeptr    = Val.Local(fresh(), Type.Ptr)
-      val idptr      = Val.Local(fresh(), Type.Ptr)
-      val id         = Val.Local(fresh(), Type.I32)
+    case Let(n, Op.Method(packedObj, MethodRef(trt: Trait, meth))) =>
       val methptrptr = Val.Local(fresh(), Type.Ptr)
+      val obj        = Val.Local(fresh(), Type.Ptr)
+      val id         = Val.Local(fresh(), Type.I16)
 
       Seq(
-        Let(typeptr.name, Op.Load(Type.Ptr, obj)),
-        Let(idptr.name,
-            Op.Elem(Rt.Type, typeptr, Seq(Val.I32(0), Val.I32(0)))),
-        Let(id.name, Op.Load(Type.I32, idptr)),
+        Let(obj.name, Op.UnpackPtr(packedObj)),
+        Let(id.name, Op.UnpackId(packedObj)),
         Let(methptrptr.name,
             Op.Elem(top.dispatchTy,
                     top.dispatchVal,

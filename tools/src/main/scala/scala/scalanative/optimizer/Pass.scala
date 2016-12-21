@@ -157,6 +157,12 @@ trait Pass {
       Op.Box(code, txVal(obj))
     case Op.Unbox(code, obj) =>
       Op.Unbox(code, txVal(obj))
+    case Op.Pack(value, ptr) =>
+      Op.Pack(txVal(value), txVal(ptr))
+    case Op.UnpackPtr(packedPtr) =>
+      Op.UnpackPtr(txVal(packedPtr))
+    case Op.UnpackId(packedPtr) =>
+      Op.UnpackId(txVal(packedPtr))
   }
 
   private def txVal(value: Val): Val = {
@@ -169,6 +175,7 @@ trait Pass {
       case Val.Local(n, ty)      => Val.Local(n, txType(ty))
       case Val.Global(n, ty)     => Val.Global(n, txType(ty))
       case Val.Const(v)          => Val.Const(txVal(v))
+      case Val.Packed(id, v)     => Val.Packed(id, txVal(v))
       case _                     => pre
     }
 

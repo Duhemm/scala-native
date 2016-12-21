@@ -1413,20 +1413,24 @@ abstract class NirCodeGen
       }
     }
 
-    def castConv(fromty: nir.Type, toty: nir.Type): Option[nir.Conv] =
+    def castConv(fromty: nir.Type, toty: nir.Type): Option[nir.Conv] = {
+      lazy val inRuntimePkg =
+        curClassSym.fullName.toString.startsWith("scala.scalanative.runtime.")
       (fromty, toty) match {
-        case (Type.I(_), Type.Ptr)                => Some(nir.Conv.Inttoptr)
-        case (Type.Ptr, Type.I(_))                => Some(nir.Conv.Ptrtoint)
-        case (_: Type.RefKind, Type.Ptr)          => Some(nir.Conv.Bitcast)
-        case (Type.Ptr, _: Type.RefKind)          => Some(nir.Conv.Bitcast)
-        case (_: Type.RefKind, Type.I(_))         => Some(nir.Conv.Ptrtoint)
-        case (Type.I(_), _: Type.RefKind)         => Some(nir.Conv.Inttoptr)
-        case (Type.I(w1), Type.F(w2)) if w1 == w2 => Some(nir.Conv.Bitcast)
-        case (Type.F(w1), Type.I(w2)) if w1 == w2 => Some(nir.Conv.Bitcast)
-        case _ if fromty == toty                  => None
+        case (Type.I(_), Type.Ptr)                        => Some(nir.Conv.Inttoptr)
+        case (Type.Ptr, Type.I(_))                        => Some(nir.Conv.Ptrtoint)
+        case (_: Type.RefKind, Type.Ptr)  if inRuntimePkg => Some(nir.Conv.Bitcast)
+        case (Type.Ptr, _: Type.RefKind)  if inRuntimePkg => Some(nir.Conv.Bitcast)
+        case (_: Type.RefKind, Type.I(_)) if inRuntimePkg => Some(nir.Conv.Ptrtoint)
+        case (Type.I(_), _: Type.RefKind) if inRuntimePkg => Some(nir.Conv.Inttoptr)
+        case (_: Type.RefKind, _: Type.RefKind)           => Some(nir.Conv.Bitcast)
+        case (Type.I(w1), Type.F(w2)) if w1 == w2         => Some(nir.Conv.Bitcast)
+        case (Type.F(w1), Type.I(w2)) if w1 == w2         => Some(nir.Conv.Bitcast)
+        case _ if fromty == toty                          => None
         case _ =>
           unsupported(s"cast from $fromty to $toty")
       }
+    }
 
     def genCastOp(app: Apply, focus: Focus): Focus = {
       val Apply(Select(Apply(_, List(valuep)), _), List(fromctp, toctp)) = app
