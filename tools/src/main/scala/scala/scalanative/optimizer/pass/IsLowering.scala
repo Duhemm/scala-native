@@ -27,18 +27,20 @@ class IsLowering(implicit fresh: Fresh, top: Top) extends Pass {
       val elseResultV = Val.Local(fresh(), Type.Bool)
       val obj         = Val.Local(fresh(), Type.Ptr)
       val id          = Val.Local(fresh(), Type.I16)
-      Seq(Let(obj.name, Op.UnpackPtr(packedObj)),
-          Let(id.name, Op.UnpackId(packedObj)),
-          // if
-          Let(isNullV.name,
-              Op.Comp(Comp.Ieq, Type.Ptr, obj, Val.Zero(Type.Ptr))),
-          Inst.If(isNullV, Next(thenL), Next(elseL)),
-          // then
-          Inst.Label(thenL, Seq.empty),
-          Let(thenResultV.name, Op.Copy(Val.False)),
-          Inst.Jump(Next.Label(contL, Seq(thenResultV))),
-          // else
-          Inst.Label(elseL, Seq.empty)) ++
+      Seq(
+        Let(obj.name, Op.UnpackPtr(packedObj)),
+        Let(id.name, Op.UnpackId(packedObj)),
+        // if
+        Let(isNullV.name,
+            Op.Comp(Comp.Ieq, Type.Ptr, obj, Val.Zero(Type.Ptr))),
+        Inst.If(isNullV, Next(thenL), Next(elseL)),
+        // then
+        Inst.Label(thenL, Seq.empty),
+        Let(thenResultV.name, Op.Copy(Val.False)),
+        Inst.Jump(Next.Label(contL, Seq(thenResultV))),
+        // else
+        Inst.Label(elseL, Seq.empty)
+      ) ++
         doEliminateIs(Let(elseResultV.name, Op.Is(ty, obj)), id) ++
         Seq(Inst.Jump(Next.Label(contL, Seq(elseResultV))),
             // cont
