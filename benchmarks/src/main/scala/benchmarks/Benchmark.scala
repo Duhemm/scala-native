@@ -1,5 +1,7 @@
 package benchmarks
 
+import scala.scalanative.runtime.GC
+
 sealed abstract class BenchmarkResult(val name: String, val success: Boolean)
 
 case class BenchmarkCompleted(override val name: String,
@@ -40,11 +42,12 @@ abstract class Benchmark[T] {
       val times: Array[Long] = new Array[Long](iterations)
 
       while (i < iterations) {
-        val start  = System.nanoTime()
-        val result = run()
-        val end    = System.nanoTime()
+        GC.gc_save()
+        val start = System.nanoTime()
+        val _     = run()
+        val end   = System.nanoTime()
+        GC.gc_restore()
 
-        success = success && check(result)
         times(i) = end - start
         i = i + 1
       }
