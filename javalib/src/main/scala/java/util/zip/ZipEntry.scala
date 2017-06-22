@@ -194,7 +194,7 @@ object ZipEntry extends ZipConstants {
     myReadFully(in, hdrBuf)
 
     val sig = ((hdrBuf(0) & 0xFF) | ((hdrBuf(1) & 0xFF) << 8) | ((hdrBuf(2) & 0xFF) << 16) | ((hdrBuf(
-        3) & 0xFF) << 24)).toLong & 0xFFFFFFFFL
+      3) & 0xFF) << 24)).toLong & 0xFFFFFFFFL
     if (sig != CENSIG) {
       throw new ZipException("Central Directory Entry not found")
     }
@@ -203,16 +203,16 @@ object ZipEntry extends ZipConstants {
     val time              = (hdrBuf(12) & 0xff) | ((hdrBuf(13) & 0xff) << 8)
     val modDate           = (hdrBuf(14) & 0xff) | ((hdrBuf(15) & 0xff) << 8)
     val crc = (hdrBuf(16) & 0xff) | ((hdrBuf(17) & 0xff) << 8) | ((hdrBuf(18) & 0xff) << 16) | ((hdrBuf(
-        19) << 24) & 0xffffffffL)
+      19) << 24) & 0xffffffffL)
     val compressedSize = (hdrBuf(20) & 0xff) | ((hdrBuf(21) & 0xff) << 8) | ((hdrBuf(
-        22) & 0xff) << 16) | ((hdrBuf(23) << 24) & 0xffffffffL)
+      22) & 0xff) << 16) | ((hdrBuf(23) << 24) & 0xffffffffL)
     val size = (hdrBuf(24) & 0xff) | ((hdrBuf(25) & 0xff) << 8) | ((hdrBuf(26) & 0xff) << 16) | ((hdrBuf(
-        27) << 24) & 0xffffffffL)
+      27) << 24) & 0xffffffffL)
     val nameLen    = (hdrBuf(28) & 0xff) | ((hdrBuf(29) & 0xff) << 8)
     val extraLen   = (hdrBuf(30) & 0xff) | ((hdrBuf(31) & 0xff) << 8)
     val commentLen = (hdrBuf(32) & 0xff) | ((hdrBuf(33) & 0xff) << 8)
     val mLocalHeaderRelOffset = (hdrBuf(42) & 0xff) | ((hdrBuf(43) & 0xff) << 8) | ((hdrBuf(
-        44) & 0xff) << 16) | ((hdrBuf(45) << 24) & 0xffffffffL)
+      44) & 0xff) << 16) | ((hdrBuf(45) << 24) & 0xffffffffL)
 
     val nameBytes = new Array[Byte](nameLen)
     myReadFully(in, nameBytes)
