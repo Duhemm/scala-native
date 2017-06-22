@@ -32,7 +32,8 @@ class ZipOutputStream(_out: OutputStream, charset: Charset)
     if (out != null) {
       finish()
       out.close()
-      out = null
+      ???
+      // out = null
     }
   }
 
