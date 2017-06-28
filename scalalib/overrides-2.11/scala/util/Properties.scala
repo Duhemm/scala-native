@@ -31,7 +31,7 @@ private[scala] trait PropertiesTrait {
   protected val propFilename = "/" + propCategory + ".properties"
 
   /** The loaded properties */
-  protected val scalaProps: java.util.Properties = {
+  protected lazy val scalaProps: java.util.Properties = {
     val props = new java.util.Properties
     props.setProperty("version.number", "2.11.11")
     props.setProperty("maven.version.number", "2.11.11")
