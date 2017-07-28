@@ -147,7 +147,7 @@ final class _Class[A](val ty: Ptr[Type]) {
   def getMethod(name: java.lang.String,
                 args: Array[Object]): java.lang.reflect.Method         = ???
   def getMethods(): Array[Object]                                      = ???
-  def getResourceAsStream(name: java.lang.String): java.io.InputStream = ???
+  def getResourceAsStream(name: java.lang.String): java.io.InputStream = null
 }
 
 object _Class {
