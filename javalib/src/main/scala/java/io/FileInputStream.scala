@@ -1,12 +1,15 @@
 package java.io
 
+import java.nio.channels.FileChannel
+
 import scalanative.native._, stdlib._, stdio._, string._
 import scalanative.posix.{fcntl, unistd}, unistd._
 import scalanative.runtime
 
-class FileInputStream(fd: FileDescriptor) extends InputStream {
+class FileInputStream private (fd: FileDescriptor, file: Option[File]) extends InputStream {
 
-  def this(file: File) = this(FileDescriptor.openReadOnly(file))
+  def this(fd: FileDescriptor) = this(fd, None)
+  def this(file: File) = this(FileDescriptor.openReadOnly(file), Some(file))
   def this(str: String) = this(new File(str))
 
   override def available(): Int = {
@@ -75,6 +78,9 @@ class FileInputStream(fd: FileDescriptor) extends InputStream {
       bytesToSkip
     }
 
-  // TODO:
-  def getChannel: java.nio.channels.FileChannel = ???
+  def getChannel: FileChannel =
+    file match {
+      case Some(file) => FileChannel.open(file.toPath, Array.empty)
+      case None => throw new UnsupportedOperationException()
+    }
 }

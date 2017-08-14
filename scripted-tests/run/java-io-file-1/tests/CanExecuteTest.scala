@@ -11,6 +11,8 @@ object CanExecuteTest {
     assert(executableDirectory.canExecute())
     assert(!unexecutableDirectory.canExecute())
     assert(!nonexistentDirectory.canExecute())
+
+    assert(rtlib.getName() == "rt.jar")
   }
 
 }

@@ -108,4 +108,6 @@ object Files {
   val existingTempTarget    = new File("existingTempTarget")
   val nonexistingTempTarget = new File("nonexistingTempTarget")
 
+  val rtlib = new File("/usr/lib/jvm/java-8-oracle/jre/lib/rt.jar")
+
 }

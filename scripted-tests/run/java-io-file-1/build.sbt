@@ -230,4 +230,7 @@ setupTests := {
   assert(!nonexistentFile.exists())
   assert(!nonexistentDirectory.exists())
 
+  assert(rtlib.exists())
+  assert(rtlib.getName() == "rt.jar")
+
 }
