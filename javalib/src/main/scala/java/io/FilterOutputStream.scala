@@ -13,5 +13,8 @@ class FilterOutputStream(protected val out: OutputStream)
 
   override def flush(): Unit = out.flush()
 
-  override def close(): Unit = out.close()
+  override def close(): Unit = {
+    flush()
+    out.close()
+  }
 }

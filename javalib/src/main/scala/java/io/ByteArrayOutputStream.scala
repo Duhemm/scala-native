@@ -53,5 +53,5 @@ class ByteArrayOutputStream(initBufSize: Int) extends OutputStream {
     buf = newBuf
   }
 
-  override def close(): Unit = ???
+  override def close(): Unit = super.close()
 }
