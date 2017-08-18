@@ -2,19 +2,34 @@ pipeline {
     agent any
 
     stages {
+        stage('Setup') {
+            steps {
+                echo 'Setup...'
+                sh 'bin/travis_setup.sh'
+            }
+        }
+        stage('Formatting') {
+            steps {
+                echo 'Checking formatting...'
+                sh 'bin/scalafmt --test'
+                sh 'bin/clangfmt --test'
+            }
+        }
         stage('Build') {
             steps {
                 echo 'Building..'
+                sh 'sbt -J-Xmx3G rebuild'
             }
         }
         stage('Test') {
             steps {
-                echo 'Testing..'
+                echo 'Testing...'
+                sh 'sbt test-all'
             }
         }
-        stage('Deploy') {
+        stage('Caching...') {
             steps {
-                echo 'Deploying....'
+                echo 'Maybe someday.'
             }
         }
     }
