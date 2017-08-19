@@ -6,7 +6,7 @@ parallel (
 def onPlatform(name) {
     node(name) {
         stage('Cloning on ' + name) {
-            if (fileExists('.git')) {
+            if (!fileExists('.git')) {
                 checkout scm
             } else {
                 echo 'Skipping!'
