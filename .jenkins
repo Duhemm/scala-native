@@ -1,5 +1,7 @@
-onPlatform("mac")
-onPlatform("linux")
+parallel (
+    "linux" : onPlatform("linux")
+    "mac"   : onPlatform("mac")
+)
 
 def onPlatform(name) {
     node(name) {
