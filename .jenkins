@@ -1,7 +1,5 @@
-pipeline {
-    onPlatform("mac")
-    onPlatform("linux")
-}
+onPlatform("mac")
+onPlatform("linux")
 
 def onPlatform(name) {
     node(name) {
