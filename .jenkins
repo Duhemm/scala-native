@@ -10,6 +10,7 @@ def onPlatform(name) {
                 checkout scm
             } else {
                 echo 'Skipping!'
+            }
         }
         stage('Setup on ' + name) {
             ansiColor('xterm') {
