@@ -12,7 +12,7 @@ pipeline {
             steps {
                 echo 'Checking formatting...'
                 sh 'bin/scalafmt --test'
-                sh 'bin/clangfmt --test'
+                // sh 'bin/clangfmt --test'
             }
         }
         stage('Build') {
