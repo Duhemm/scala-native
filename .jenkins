@@ -6,6 +6,7 @@ parallel (
 def onPlatform(name) {
     node(name) {
         stage('Cloning on ' + name) {
+            sh 'whoami'
             if (!fileExists('.git')) {
                 checkout scm
             } else {
