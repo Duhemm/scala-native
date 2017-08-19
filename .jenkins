@@ -4,43 +4,33 @@ onPlatform("linux")
 def onPlatform(name) {
     node(name) {
         stage('Setup on ' + name) {
-            steps {
-                ansiColor('xterm') {
-                    echo 'Setup...'
-                        sh 'bin/travis_setup.sh'
-                }
+            ansiColor('xterm') {
+                echo 'Setup...'
+                    sh 'bin/travis_setup.sh'
             }
         }
         stage('Formatting on ' + name) {
-            steps {
-                ansiColor('xterm') {
-                    echo 'Checking formatting...'
-                        sh 'bin/scalafmt --test'
-                        // sh 'bin/clangfmt --test'
-                }
+            ansiColor('xterm') {
+                echo 'Checking formatting...'
+                    sh 'bin/scalafmt --test'
+                    // sh 'bin/clangfmt --test'
             }
         }
         stage('Build on ' + name) {
-            steps {
-                ansiColor('xterm') {
-                    echo 'Building..'
-                        sh 'sbt -J-Xmx3G rebuild'
-                }
+            ansiColor('xterm') {
+                echo 'Building..'
+                    sh 'sbt -J-Xmx3G rebuild'
             }
         }
         stage('Test on ' + name) {
-            steps {
-                ansiColor('xterm') {
-                    echo 'Testing...'
-                        sh 'sbt -J-Xmx3G test-all'
-                }
+            ansiColor('xterm') {
+                echo 'Testing...'
+                    sh 'sbt -J-Xmx3G test-all'
             }
         }
         stage('Caching... on ' + name) {
-            steps {
-                ansiColor('xterm') {
-                    echo 'Maybe someday.'
-                }
+            ansiColor('xterm') {
+                echo 'Maybe someday.'
             }
         }
     }
