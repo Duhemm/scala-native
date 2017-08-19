@@ -1,6 +1,6 @@
 parallel (
-    "linux" : { onPlatform("linux") }
-    "mac"   : { onPlatform("mac") }
+    "linuxbuild" : { onPlatform("linux") }
+    "macbuild"   : { onPlatform("mac") }
 )
 
 def onPlatform(name) {
