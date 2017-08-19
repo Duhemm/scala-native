@@ -3,45 +3,43 @@ onPlatform("linux")
 
 def onPlatform(name) {
     node(name) {
-        stages {
-            stage('Setup on ' + name) {
-                steps {
-                    ansiColor('xterm') {
-                        echo 'Setup...'
-                            sh 'bin/travis_setup.sh'
-                    }
+        stage('Setup on ' + name) {
+            steps {
+                ansiColor('xterm') {
+                    echo 'Setup...'
+                        sh 'bin/travis_setup.sh'
                 }
             }
-            stage('Formatting on ' + name) {
-                steps {
-                    ansiColor('xterm') {
-                        echo 'Checking formatting...'
-                            sh 'bin/scalafmt --test'
-                            // sh 'bin/clangfmt --test'
-                    }
+        }
+        stage('Formatting on ' + name) {
+            steps {
+                ansiColor('xterm') {
+                    echo 'Checking formatting...'
+                        sh 'bin/scalafmt --test'
+                        // sh 'bin/clangfmt --test'
                 }
             }
-            stage('Build on ' + name) {
-                steps {
-                    ansiColor('xterm') {
-                        echo 'Building..'
-                            sh 'sbt -J-Xmx3G rebuild'
-                    }
+        }
+        stage('Build on ' + name) {
+            steps {
+                ansiColor('xterm') {
+                    echo 'Building..'
+                        sh 'sbt -J-Xmx3G rebuild'
                 }
             }
-            stage('Test on ' + name) {
-                steps {
-                    ansiColor('xterm') {
-                        echo 'Testing...'
-                            sh 'sbt -J-Xmx3G test-all'
-                    }
+        }
+        stage('Test on ' + name) {
+            steps {
+                ansiColor('xterm') {
+                    echo 'Testing...'
+                        sh 'sbt -J-Xmx3G test-all'
                 }
             }
-            stage('Caching... on ' + name) {
-                steps {
-                    ansiColor('xterm') {
-                        echo 'Maybe someday.'
-                    }
+        }
+        stage('Caching... on ' + name) {
+            steps {
+                ansiColor('xterm') {
+                    echo 'Maybe someday.'
                 }
             }
         }
