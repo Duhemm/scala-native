@@ -4,33 +4,44 @@ pipeline {
     stages {
         stage('Setup') {
             steps {
-                echo 'Setup...'
-                sh 'bin/travis_setup.sh'
+                ansiColor('xterm') {
+                    echo 'Setup...'
+                    sh 'bin/travis_setup.sh'
+                }
             }
         }
         stage('Formatting') {
             steps {
-                echo 'Checking formatting...'
-                sh 'bin/scalafmt --test'
-                // sh 'bin/clangfmt --test'
+                ansiColor('xterm') {
+                    echo 'Checking formatting...'
+                    sh 'bin/scalafmt --test'
+                    // sh 'bin/clangfmt --test'
+                }
             }
         }
         stage('Build') {
             steps {
-                echo 'Building..'
-                sh 'sbt -J-Xmx3G rebuild'
+                ansiColor('xterm') {
+                    echo 'Building..'
+                    sh 'sbt -J-Xmx3G rebuild'
+                }
             }
         }
         stage('Test') {
             steps {
-                echo 'Testing...'
-                sh 'sbt test-all'
+                ansiColor('xterm') {
+                    echo 'Testing...'
+                    sh 'sbt test-all'
+                }
             }
         }
         stage('Caching...') {
             steps {
-                echo 'Maybe someday.'
+                ansiColor('xterm') {
+                    echo 'Maybe someday.'
+                }
             }
         }
     }
 }
+
