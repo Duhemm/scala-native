@@ -5,6 +5,12 @@ parallel (
 
 def onPlatform(name) {
     node(name) {
+        stage('Cloning on ' + name) {
+            if (fileExists('.git')) {
+                checkout scm
+            } else {
+                echo 'Skipping!'
+        }
         stage('Setup on ' + name) {
             ansiColor('xterm') {
                 echo 'Setup...'
