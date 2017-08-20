@@ -1,0 +1,54 @@
+// parallel (
+//     "linux" : { onPlatform("linux") },
+//     "mac"   : { onPlatform("mac") }
+// )
+onPlatform("linux")
+onPlatform("mac")
+
+def onPlatform(name) {
+    node(name) {
+        stage('Cloning on ' + name) {
+            sh 'whoami'
+            if (!fileExists('.git')) {
+                echo 'Cloning...'
+                checkout scm
+            } else {
+                echo 'Cleaning...'
+                if (fileExists('re2')) {
+                    sh 'rm -rf re2'
+                }
+                sh 'git clean -Xfd'
+            }
+        }
+        stage('Setup on ' + name) {
+            ansiColor('xterm') {
+                echo 'Setup...'
+                    sh 'bin/travis_setup.sh'
+            }
+        }
+        stage('Formatting on ' + name) {
+            ansiColor('xterm') {
+                echo 'Checking formatting...'
+                    sh 'bin/scalafmt --test'
+                    // sh 'bin/clangfmt --test'
+            }
+        }
+        stage('Build on ' + name) {
+            ansiColor('xterm') {
+                echo 'Building..'
+                    sh 'sbt -J-Xmx3G rebuild'
+            }
+        }
+        stage('Test on ' + name) {
+            ansiColor('xterm') {
+                echo 'Testing...'
+                    sh 'sbt -J-Xmx3G test-all'
+            }
+        }
+        stage('Caching... on ' + name) {
+            ansiColor('xterm') {
+                echo 'Maybe someday.'
+            }
+        }
+    }
+}
