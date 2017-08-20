@@ -1,7 +1,9 @@
-parallel (
-    "linux" : { onPlatform("linux") },
-    "mac"   : { onPlatform("mac") }
-)
+// parallel (
+//     "linux" : { onPlatform("linux") },
+//     "mac"   : { onPlatform("mac") }
+// )
+onPlatform("linux")
+onPlatform("mac")
 
 def onPlatform(name) {
     node(name) {
