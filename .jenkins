@@ -12,6 +12,9 @@ def onPlatform(name) {
                 checkout scm
             } else {
                 echo 'Cleaning...'
+                if (fileExists('re2')) {
+                    sh 'rm -rf re2'
+                }
                 sh 'git clean -Xfd'
             }
         }
