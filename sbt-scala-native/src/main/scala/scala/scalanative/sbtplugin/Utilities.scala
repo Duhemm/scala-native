@@ -116,6 +116,6 @@ object Utilities {
     }
 
     def running(command: Seq[String]): Unit =
-      logger.debug("running" + nl + command.mkString(nl + "\t"))
+      logger.info("running" + nl + command.mkString(nl + "\t"))
   }
 }
