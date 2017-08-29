@@ -531,3 +531,5 @@ lazy val testInterfaceSbtDefs =
       libraryDependencies -= "org.scala-native" %%% "test-interface" % version.value % Test
     )
     .enablePlugins(ScalaNativePlugin)
+
+// yay!
